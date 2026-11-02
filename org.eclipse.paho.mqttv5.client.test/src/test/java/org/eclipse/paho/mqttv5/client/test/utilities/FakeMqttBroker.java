@@ -42,6 +42,7 @@ public class FakeMqttBroker {
 
 	private static final int CONNECT = 1;
 	private static final int PUBLISH = 3;
+	private static final int PUBACK = 4;
 	private static final int SUBSCRIBE = 8;
 	private static final int UNSUBSCRIBE = 10;
 	private static final int PINGREQ = 12;
@@ -54,6 +55,10 @@ public class FakeMqttBroker {
 	private final List<String> subscriptions = new CopyOnWriteArrayList<String>();
 	private final AtomicInteger connects = new AtomicInteger();
 	private final AtomicInteger pings = new AtomicInteger();
+	private final AtomicInteger pubAcks = new AtomicInteger();
+	private final AtomicInteger nextPacketId = new AtomicInteger();
+	/** Whether to send a QoS 1 PUBLISH right after each CONNACK, see {@link #setPublishOnConnect(String)}. */
+	private volatile String publishOnConnect;
 	private volatile boolean answering = true;
 	private volatile boolean closed;
 
@@ -107,6 +112,19 @@ public class FakeMqttBroker {
 		return connects.get();
 	}
 
+	/** Number of PUBACK packets received so far (acknowledgements of QoS 1 messages sent to the client). */
+	public int getPubAckCount() {
+		return pubAcks.get();
+	}
+
+	/**
+	 * When set, the broker sends a QoS 1 PUBLISH to this topic right after every CONNACK, like a
+	 * broker delivering a message queued in a persistent session before the client subscribes.
+	 */
+	public void setPublishOnConnect(String topic) {
+		this.publishOnConnect = topic;
+	}
+
 	/** Number of PINGREQ packets received so far. */
 	public int getPingCount() {
 		return pings.get();
@@ -133,9 +151,14 @@ public class FakeMqttBroker {
 
 	/** Sends a QoS 0 PUBLISH to every connected client. */
 	public void publish(String topic, String payload) throws IOException {
+		publish(topic, payload, 0);
+	}
+
+	/** Sends a PUBLISH with QoS 0 or 1 to every connected client. */
+	public void publish(String topic, String payload, int qos) throws IOException {
 		for (Connection connection : connections) {
 			if (connection.connected) {
-				connection.sendPublish(topic, payload.getBytes(StandardCharsets.UTF_8));
+				connection.sendPublish(topic, payload.getBytes(StandardCharsets.UTF_8), qos);
 			}
 		}
 	}
@@ -208,6 +231,9 @@ public class FakeMqttBroker {
 				if (answering) {
 					connected = true;
 					send(0x20, protocolLevel == 5 ? new byte[] { 0, 0, 0 } : new byte[] { 0, 0 });
+					if (publishOnConnect != null) {
+						sendPublish(publishOnConnect, new byte[] { 'q' }, 1);
+					}
 				}
 			} else if (type == SUBSCRIBE) {
 				int packetId = packet.readUnsignedShort();
@@ -257,6 +283,8 @@ public class FakeMqttBroker {
 						send(0x40, ack.toByteArray());
 					}
 				}
+			} else if (type == PUBACK) {
+				pubAcks.incrementAndGet();
 			} else if (type == PINGREQ) {
 				pings.incrementAndGet();
 				if (answering) {
@@ -277,16 +305,19 @@ public class FakeMqttBroker {
 			return variableIntSize(propertiesLength) + propertiesLength;
 		}
 
-		void sendPublish(String topic, byte[] payload) throws IOException {
+		void sendPublish(String topic, byte[] payload, int qos) throws IOException {
 			ByteArrayOutputStream body = new ByteArrayOutputStream();
 			byte[] topicBytes = topic.getBytes(StandardCharsets.UTF_8);
 			writeShort(body, topicBytes.length);
 			body.write(topicBytes);
+			if (qos > 0) {
+				writeShort(body, nextPacketId.incrementAndGet() % 65535 + 1);
+			}
 			if (protocolLevel == 5) {
 				body.write(0); // no properties
 			}
 			body.write(payload);
-			send(0x30, body.toByteArray());
+			send(0x30 | (qos << 1), body.toByteArray());
 		}
 
 		private void send(int header, byte[] body) throws IOException {

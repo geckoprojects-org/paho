@@ -398,6 +398,20 @@ public class CommsCallback implements Runnable {
 					workAvailable.notifyAll();
 				}
 			}
+		} else {
+			// No callback and no message listener (yet), e.g. a message of a persistent session
+			// that arrives right after the CONNACK, before the application subscribes. Nobody can
+			// take it; acknowledge it all the same, as handleMessage does for a message no listener
+			// matches. Without the acknowledgement the server redelivers it on every connect.
+			// @TRACE 730=no callback or message listener; message {0} on topic {1} acknowledged and discarded
+			log.warning(CLASS_NAME, methodName, "730",
+					new Object[] { Integer.valueOf(sendMessage.getMessageId()), sendMessage.getTopicName() });
+			try {
+				acknowledge(sendMessage);
+			} catch (MqttException ex) {
+				// @TRACE 731=could not acknowledge discarded message {0}
+				log.fine(CLASS_NAME, methodName, "731", new Object[] { Integer.valueOf(sendMessage.getMessageId()) }, ex);
+			}
 		}
 	}
 
@@ -481,7 +495,14 @@ public class CommsCallback implements Runnable {
 		deliverMessage(destName, publishMessage.getMessageId(), publishMessage.getMessage());
 
 		// If we are not in manual ACK mode:
-		if (!this.manualAcks && publishMessage.getMessage().getQos() == 1) {
+		if (!this.manualAcks) {
+			acknowledge(publishMessage);
+		}
+	}
+
+	/** Sends the acknowledgement of a received QoS 1 message (QoS 2 flows are completed by ClientState). */
+	private void acknowledge(MqttPublish publishMessage) throws MqttException {
+		if (publishMessage.getMessage().getQos() == 1) {
 			this.clientComms.internalSend(new MqttPubAck(MqttReturnCode.RETURN_CODE_SUCCESS,
 					publishMessage.getMessageId(), new MqttProperties()),
 					new MqttToken(clientComms.getClient().getClientId()));

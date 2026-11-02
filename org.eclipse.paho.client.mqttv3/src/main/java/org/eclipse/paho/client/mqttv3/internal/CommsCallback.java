@@ -391,6 +391,20 @@ public class CommsCallback implements Runnable {
 					workAvailable.notifyAll();
 				}
 			}
+		} else {
+			// No callback and no message listener (yet), e.g. a message of a persistent session
+			// that arrives right after the CONNACK, before the application subscribes. Nobody can
+			// take it; acknowledge it all the same, as handleMessage does for a message no listener
+			// matches. Without the acknowledgement the server redelivers it on every connect.
+			// @TRACE 730=no callback or message listener; message {0} on topic {1} acknowledged and discarded
+			log.warning(CLASS_NAME, methodName, "730",
+					new Object[] { Integer.valueOf(sendMessage.getMessageId()), sendMessage.getTopicName() });
+			try {
+				acknowledge(sendMessage);
+			} catch (MqttException ex) {
+				// @TRACE 731=could not acknowledge discarded message {0}
+				log.fine(CLASS_NAME, methodName, "731", new Object[] { Integer.valueOf(sendMessage.getMessageId()) }, ex);
+			}
 		}
 	}
 
@@ -434,15 +448,20 @@ public class CommsCallback implements Runnable {
 				publishMessage.getMessage());
 
 		if (!this.manualAcks) {
-			if (publishMessage.getMessage().getQos() == 1) {
-				this.clientComms.internalSend(new MqttPubAck(publishMessage),
-						new MqttToken(clientComms.getClient().getClientId()));
-			} else if (publishMessage.getMessage().getQos() == 2) {
-				this.clientComms.deliveryComplete(publishMessage);
-				MqttPubComp pubComp = new MqttPubComp(publishMessage);
-				this.clientComms.internalSend(pubComp, new MqttToken(
-						clientComms.getClient().getClientId()));
-			}
+			acknowledge(publishMessage);
+		}
+	}
+
+	/** Sends the acknowledgement that completes the flow of a received QoS 1 or QoS 2 message. */
+	private void acknowledge(MqttPublish publishMessage) throws MqttException {
+		if (publishMessage.getMessage().getQos() == 1) {
+			this.clientComms.internalSend(new MqttPubAck(publishMessage),
+					new MqttToken(clientComms.getClient().getClientId()));
+		} else if (publishMessage.getMessage().getQos() == 2) {
+			this.clientComms.deliveryComplete(publishMessage);
+			MqttPubComp pubComp = new MqttPubComp(publishMessage);
+			this.clientComms.internalSend(pubComp, new MqttToken(
+					clientComms.getClient().getClientId()));
 		}
 	}
 	
