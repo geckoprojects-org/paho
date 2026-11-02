@@ -26,6 +26,7 @@ import org.eclipse.paho.client.mqttv3.MqttConnectOptions;
 import org.eclipse.paho.client.mqttv3.MqttException;
 import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence;
 import org.eclipse.paho.client.mqttv3.test.utilities.FakeMqttBroker;
+import org.eclipse.paho.client.mqttv3.test.utilities.TestTiming;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -36,6 +37,14 @@ import org.junit.Test;
  * connectionTimeout (issue #511). Runs without an external broker.
  */
 public class ConnackTimeoutTest {
+
+	private static final int CONNECTION_TIMEOUT_S = 1;
+	private static final int MAX_RECONNECT_DELAY_MS = 2000;
+	/**
+	 * Longest a connect attempt without CONNACK takes: the deadline of connectionTimeout plus up to
+	 * one read timeout of the receiver, which checks the deadline.
+	 */
+	private static final long ATTEMPT_MAX_MS = CONNECTION_TIMEOUT_S * 1000L + 1000;
 
 	private FakeMqttBroker broker;
 	private MqttAsyncClient client;
@@ -85,32 +94,32 @@ public class ConnackTimeoutTest {
 		broker.setAnswering(false);
 		client = new MqttAsyncClient(broker.getServerURI(), "connack-timeout", new MemoryPersistence());
 		Outcome outcome = new Outcome();
-		client.connect(options(1), null, outcome);
+		client.connect(options(CONNECTION_TIMEOUT_S), null, outcome);
 
-		Assert.assertTrue("Connect callback not called although no CONNACK arrived", outcome.done.await(5, TimeUnit.SECONDS));
+		Assert.assertTrue("Connect callback not called although no CONNACK arrived", outcome.done.await(TestTiming.scaled(ATTEMPT_MAX_MS + 3000), TimeUnit.MILLISECONDS));
 		Assert.assertTrue("Connect did not fail", outcome.failure.get() instanceof MqttException);
 		Assert.assertEquals(MqttException.REASON_CODE_CLIENT_TIMEOUT, ((MqttException) outcome.failure.get()).getReasonCode());
 		Assert.assertFalse(client.isConnected());
 
 		// The client is not left in CONNECTING: the next attempt goes through.
 		broker.setAnswering(true);
-		client.connect(options(1)).waitForCompletion(5000);
+		client.connect(options(CONNECTION_TIMEOUT_S)).waitForCompletion(TestTiming.scaled(5000));
 		Assert.assertTrue(client.isConnected());
 	}
 
 	@Test
 	public void testReconnectContinuesWhenConnackIsMissing() throws Exception {
 		client = new MqttAsyncClient(broker.getServerURI(), "connack-timeout-reconnect", new MemoryPersistence());
-		MqttConnectOptions options = options(1);
+		MqttConnectOptions options = options(CONNECTION_TIMEOUT_S);
 		options.setAutomaticReconnect(true);
-		options.setMaxReconnectDelay(2000);
+		options.setMaxReconnectDelay(MAX_RECONNECT_DELAY_MS);
 		client.connect(options).waitForCompletion(5000);
 		Assert.assertEquals(1, broker.getConnectCount());
 
 		broker.setAnswering(false);
 		broker.dropConnections();
 
-		boolean retried = waitFor(new Condition() {
+		boolean retried = TestTiming.waitFor(new TestTiming.Condition() {
 			public boolean met() {
 				return broker.getConnectCount() >= 3;
 			}
@@ -119,7 +128,7 @@ public class ConnackTimeoutTest {
 				+ broker.getConnectCount(), retried);
 
 		broker.setAnswering(true);
-		Assert.assertTrue("Client did not reconnect once the server answered again", waitFor(new Condition() {
+		Assert.assertTrue("Client did not reconnect once the server answered again", TestTiming.waitFor(new TestTiming.Condition() {
 			public boolean met() {
 				return client.isConnected();
 			}
@@ -133,21 +142,6 @@ public class ConnackTimeoutTest {
 		Outcome outcome = new Outcome();
 		client.connect(options(0), null, outcome);
 
-		Assert.assertFalse("connectionTimeout=0 must keep waiting for the CONNACK", outcome.done.await(2500, TimeUnit.MILLISECONDS));
-	}
-
-	private interface Condition {
-		boolean met();
-	}
-
-	private static boolean waitFor(Condition condition, long timeoutMillis) throws InterruptedException {
-		long deadline = System.currentTimeMillis() + timeoutMillis;
-		while (System.currentTimeMillis() < deadline) {
-			if (condition.met()) {
-				return true;
-			}
-			Thread.sleep(100);
-		}
-		return condition.met();
+		Assert.assertFalse("connectionTimeout=0 must keep waiting for the CONNACK", outcome.done.await(TestTiming.scaled(ATTEMPT_MAX_MS + 500), TimeUnit.MILLISECONDS));
 	}
 }

@@ -25,6 +25,7 @@ import org.eclipse.paho.client.mqttv3.MqttConnectOptions;
 import org.eclipse.paho.client.mqttv3.MqttMessage;
 import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence;
 import org.eclipse.paho.client.mqttv3.test.utilities.FakeMqttBroker;
+import org.eclipse.paho.client.mqttv3.test.utilities.TestTiming;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -88,14 +89,14 @@ public class ResubscribeTest {
 
 		broker.dropConnections();
 
-		Assert.assertTrue("Subscription was not restored after the reconnect", waitFor(new Condition() {
+		Assert.assertTrue("Subscription was not restored after the reconnect", TestTiming.waitFor(new TestTiming.Condition() {
 			public boolean met() {
 				return client.isConnected() && broker.getSubscriptions(2).contains(TOPIC);
 			}
 		}, 10000));
 		broker.publish(TOPIC, "after reconnect");
 		Assert.assertTrue("Message listener did not receive after the reconnect",
-				received.await(5, TimeUnit.SECONDS));
+				received.await(TestTiming.scaled(5000), TimeUnit.MILLISECONDS));
 	}
 
 	/** With automaticResubscribe disabled, the application stays in charge of its subscriptions. */
@@ -109,12 +110,13 @@ public class ResubscribeTest {
 
 		broker.dropConnections();
 
-		Assert.assertTrue("Client did not reconnect", waitFor(new Condition() {
+		Assert.assertTrue("Client did not reconnect", TestTiming.waitFor(new TestTiming.Condition() {
 			public boolean met() {
 				return client.isConnected() && broker.getConnectCount() == 2;
 			}
 		}, 10000));
-		Thread.sleep(500);
+		// restoreSubscriptions() runs before connectComplete; its SUBSCRIBE would arrive right after
+		TestTiming.observe(1000);
 		Assert.assertTrue(broker.getSubscriptions(2).isEmpty());
 	}
 
@@ -129,26 +131,11 @@ public class ResubscribeTest {
 
 		broker.dropConnections();
 
-		Assert.assertTrue("Subscription was not restored after the reconnect", waitFor(new Condition() {
+		Assert.assertTrue("Subscription was not restored after the reconnect", TestTiming.waitFor(new TestTiming.Condition() {
 			public boolean met() {
 				return client.isConnected() && !broker.getSubscriptions(2).isEmpty();
 			}
 		}, 10000));
 		Assert.assertEquals(Collections.singletonList(TOPIC + "/other"), broker.getSubscriptions(2));
-	}
-
-	private interface Condition {
-		boolean met();
-	}
-
-	private static boolean waitFor(Condition condition, long timeoutMillis) throws InterruptedException {
-		long deadline = System.currentTimeMillis() + timeoutMillis;
-		while (System.currentTimeMillis() < deadline) {
-			if (condition.met()) {
-				return true;
-			}
-			Thread.sleep(100);
-		}
-		return condition.met();
 	}
 }
