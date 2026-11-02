@@ -945,6 +945,21 @@ public class ClientState implements MqttState {
 		}
 	}
 
+	/**
+	 * Frees the in-flight slot of the QoS 1 or QoS 2 publish an acknowledgement (PUBACK, PUBCOMP)
+	 * completes. Idempotent: only the first call for a message decrements the in-flight count, so
+	 * notifyResult and notifyComplete can both call it.
+	 */
+	private void releaseInflightSlot(MqttAck ack) {
+		synchronized (queueLock) {
+			Integer messageId = Integer.valueOf(ack.getMessageId());
+			Object released = ack instanceof MqttPubAck ? outboundQoS1.remove(messageId) : outboundQoS2.remove(messageId);
+			if (released != null) {
+				decrementInFlight();
+			}
+		}
+	}
+
 	private void decrementInFlight() {
 		final String methodName = "decrementInFlight";
 		synchronized (queueLock) {
@@ -1268,8 +1283,7 @@ public class ClientState implements MqttState {
 				// QoS 1 - user notified now remove from persistence...
 				persistence.remove(getSendPersistenceKey(message));
 				persistence.remove(getSendBufferedPersistenceKey(message));
-				outboundQoS1.remove(Integer.valueOf(ack.getMessageId()));
-				decrementInFlight();
+				releaseInflightSlot(ack); // usually done already in notifyResult
 				releaseMessageId(message.getMessageId());
 				tokenStore.removeToken(message);
 				// @TRACE 650=removed Qos 1 publish. key={0}
@@ -1279,10 +1293,9 @@ public class ClientState implements MqttState {
 				persistence.remove(getSendPersistenceKey(message));
 				persistence.remove(getSendConfirmPersistenceKey(message));
 				persistence.remove(getSendBufferedPersistenceKey(message));
-				outboundQoS2.remove(Integer.valueOf(ack.getMessageId()));
+				releaseInflightSlot(ack); // usually done already in notifyResult
 
 				inFlightPubRels--;
-				decrementInFlight();
 				releaseMessageId(message.getMessageId());
 				tokenStore.removeToken(message);
 
@@ -1314,6 +1327,13 @@ public class ClientState implements MqttState {
 		final String methodName = "notifyResult";
 		// unblock any threads waiting on the token
 		token.internalTok.markComplete(ack, ex);
+		if (ack instanceof MqttPubAck || ack instanceof MqttPubComp) {
+			// Free the in-flight slot before the waiter wakes up: the rest of the clean-up
+			// runs later on the callback thread, and an application that publishes its
+			// next message right away would otherwise still find the slot taken
+			// ("Too many publishes in progress").
+			releaseInflightSlot((MqttAck) ack);
+		}
 		token.internalTok.notifyComplete();
 
 		// Let the user know an async operation has completed and then remove the token
