@@ -47,6 +47,22 @@ What existing application code may notice when switching from upstream 1.2.5:
 |---|---|---|---|
 | [#23](https://github.com/geckoprojects-org/paho/issues/23) | – | v3, v5 | Use the application's `ScheduledExecutorService` for the reconnect timer (and the v3 pings) instead of a thread per client. |
 
+## Security findings
+
+From a review of both clients for CWE weaknesses, with secure by default and by design as the yardstick. All are in code taken over unchanged from upstream; none is fixed yet.
+
+| Issue | Upstream (related) | Clients | CWE | Summary |
+|---|---|---|---|---|
+| [#24](https://github.com/geckoprojects-org/paho/issues/24) | [#820](https://github.com/eclipse-paho/paho.mqtt.java/issues/820), [#462](https://github.com/eclipse-paho/paho.mqtt.java/issues/462) | v3, v5 | CWE-789, CWE-770, CWE-20 | Inbound packets are not size-limited by default; v5 allocates before checking `maximumPacketSize`; variable byte integers longer than 4 bytes are accepted. One forged length allocates 256 MiB, and the resulting `OutOfMemoryError` ends the receiver thread without reconnect. |
+| [#25](https://github.com/geckoprojects-org/paho/issues/25) | [#501](https://github.com/eclipse-paho/paho.mqtt.java/issues/501), [#1000](https://github.com/eclipse-paho/paho.mqtt.java/issues/1000) | v3, v5 | CWE-789, CWE-190, CWE-476 | WebSocket: the 64-bit frame length overflows an `int`, frames and handshake headers are unbounded, EOF in the handshake ends in an NPE. |
+| [#26](https://github.com/geckoprojects-org/paho/issues/26) | [#922](https://github.com/eclipse-paho/paho.mqtt.java/issues/922) | v5 | CWE-532 | `MqttConnect.toString()` contains the password and is logged at FINE for every CONNECT; the connection options' debug dump shows key store passwords. |
+| [#27](https://github.com/geckoprojects-org/paho/issues/27) | – | v3, v5 | CWE-276, CWE-312 | The default constructors persist QoS 1/2 messages in clear to `user.dir`, with umask permissions. |
+| [#28](https://github.com/geckoprojects-org/paho/issues/28) | – | v3, v5 | CWE-261, CWE-327 | `{xor}` key store passwords look protected but are only encoded. |
+| [#29](https://github.com/geckoprojects-org/paho/issues/29) | – | v3, v5 | CWE-319, CWE-523 | Credentials and WebSocket Basic authentication go over `tcp://`/`ws://` without any notice. |
+| [#30](https://github.com/geckoprojects-org/paho/issues/30) | – | v3 | CWE-330, CWE-340 | `generateClientId()` is `"paho" + System.nanoTime()`, a guessable session identity. |
+
+Checked without finding: TLS hostname verification is on by default (`HTTPS` endpoint identification, SNI), the default protocol is the JDK's `TLS` with its disabled legacy versions, WebSocket masking keys come from `SecureRandom`, and the file persistence directory name cannot leave the data directory (`isSafeChar`).
+
 ## Checked, no change needed
 
 - [#12](https://github.com/geckoprojects-org/paho/issues/12), upstream
