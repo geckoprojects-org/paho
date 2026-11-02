@@ -244,6 +244,8 @@ public class MqttAsyncClient implements MqttClientInterface, IMqttAsyncClient {
 												// second
 	private boolean reconnecting = false;
 	private final Object clientLock = new Object(); // Simple lock
+	// The application ended the automatic reconnect cycle (disconnect, close); guarded by clientLock
+	private boolean reconnectCycleEnded = false;
 
 	/**
 	 * Subscriptions made through this client, by topic filter, so they can be restored after an
@@ -863,6 +865,7 @@ public class MqttAsyncClient implements MqttClientInterface, IMqttAsyncClient {
 		MqttDisconnect disconnect = new MqttDisconnect(reasonCode, disconnectProperties);
 
 		try {
+			endReconnectCycle();
 			comms.disconnect(disconnect, quiesceTimeout, token);
                         Thread.sleep(100);
 		} catch (MqttException ex) {
@@ -910,6 +913,7 @@ public class MqttAsyncClient implements MqttClientInterface, IMqttAsyncClient {
 		final String methodName = "disconnectForcibly";
 		try {
 		        storedSubscriptions.clear();
+		        endReconnectCycle();
 		        comms.disconnectForcibly(quiesceTimeout, disconnectTimeout, reasonCode, disconnectProperties);
                         Thread.sleep(100);
 		} catch (MqttException ex) {
@@ -931,6 +935,7 @@ public class MqttAsyncClient implements MqttClientInterface, IMqttAsyncClient {
 	public void disconnectForcibly(long quiesceTimeout, long disconnectTimeout, boolean sendDisconnectPacket)
 			throws MqttException {
 		storedSubscriptions.clear();
+		endReconnectCycle();
 		comms.disconnectForcibly(quiesceTimeout, disconnectTimeout, sendDisconnectPacket,
 				MqttReturnCode.RETURN_CODE_SUCCESS, new MqttProperties());
 	}
@@ -1596,8 +1601,15 @@ public class MqttAsyncClient implements MqttClientInterface, IMqttAsyncClient {
 		if (comms.isClosed()) {
 			throw new MqttException(MqttClientException.REASON_CODE_CLIENT_CLOSED);
 		}
+		if (connOpts == null) {
+			// connect() was never called, so there is nothing to reconnect with
+			throw ExceptionHelper.createMqttException(MqttClientException.REASON_CODE_CLIENT_NOT_CONNECTED);
+		}
 		// We don't want to spam the server
 		stopReconnectCycle();
+		synchronized (clientLock) {
+			reconnectCycleEnded = false;
+		}
 
 		attemptReconnect();
 	}
@@ -1673,6 +1685,11 @@ public class MqttAsyncClient implements MqttClientInterface, IMqttAsyncClient {
 
 	private void attemptReconnect() {
 		final String methodName = "attemptReconnect";
+		synchronized (clientLock) {
+			if (reconnectCycleEnded) {
+				return;
+			}
+		}
 		// @Trace 500=Attempting to reconnect client: {0}
 		log.fine(CLASS_NAME, methodName, "500", new Object[] { this.mqttSession.getClientId() });
 		try {
@@ -1708,13 +1725,30 @@ public class MqttAsyncClient implements MqttClientInterface, IMqttAsyncClient {
 		// @Trace 504=Stop reconnect timer for client: {0}
 		log.fine(CLASS_NAME, methodName, "504", new Object[] { this.mqttSession.getClientId() });
 		synchronized (clientLock) {
-			if (this.connOpts.isAutomaticReconnect()) {
+			if (this.connOpts != null && this.connOpts.isAutomaticReconnect()) {
 				if (reconnectTimer != null) {
 					reconnectTimer.cancel();
 					reconnectTimer = null;
 				}
 				reconnectDelay = 1000; // Reset Delay Timer
 			}
+		}
+	}
+
+	/**
+	 * Ends the automatic reconnect cycle for good, because the application takes the connection
+	 * down (disconnect, close). Unlike {@link #stopReconnectCycle()}, a failing reconnect attempt
+	 * that is still under way does not schedule a new one. A later connection loss or an explicit
+	 * {@link #reconnect()} starts a new cycle.
+	 */
+	private void endReconnectCycle() {
+		synchronized (clientLock) {
+			reconnectCycleEnded = true;
+			if (reconnectTimer != null) {
+				reconnectTimer.cancel();
+				reconnectTimer = null;
+			}
+			reconnectDelay = 1000; // Reset Delay Timer
 		}
 	}
 
@@ -1751,6 +1785,9 @@ public class MqttAsyncClient implements MqttClientInterface, IMqttAsyncClient {
 				// state
 				comms.setRestingState(true);
 				reconnecting = true;
+				synchronized (clientLock) {
+					reconnectCycleEnded = false;
+				}
 				startReconnectCycle();
 			}
 		}
@@ -1799,7 +1836,7 @@ public class MqttAsyncClient implements MqttClientInterface, IMqttAsyncClient {
 			log.fine(CLASS_NAME, reschedulemethodName, "505",
 					new Object[] { MqttAsyncClient.this.mqttSession.getClientId(), String.valueOf(reconnectDelay) });
 			synchronized (clientLock) {
-				if (MqttAsyncClient.this.connOpts.isAutomaticReconnect()) {
+				if (!reconnectCycleEnded && MqttAsyncClient.this.connOpts.isAutomaticReconnect()) {
 					if (reconnectTimer != null) {
 						reconnectTimer.schedule(new ReconnectTask(), delay);
 					} else {
@@ -1889,6 +1926,7 @@ public class MqttAsyncClient implements MqttClientInterface, IMqttAsyncClient {
 		// @TRACE 113=<
 		log.fine(CLASS_NAME, methodName, "113");
 		storedSubscriptions.clear();
+		endReconnectCycle();
 		comms.close(force);
 		// @TRACE 114=>
 		log.fine(CLASS_NAME, methodName, "114");

@@ -21,6 +21,7 @@ import java.io.DataInputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
@@ -46,7 +47,8 @@ public class FakeMqttBroker {
 	private static final int PINGREQ = 12;
 	private static final int DISCONNECT = 14;
 
-	private final ServerSocket serverSocket;
+	private final int port;
+	private volatile ServerSocket serverSocket;
 	private final List<Connection> connections = new CopyOnWriteArrayList<Connection>();
 	/** Entries "connectNumber:topicFilter", one per filter in each SUBSCRIBE. */
 	private final List<String> subscriptions = new CopyOnWriteArrayList<String>();
@@ -55,18 +57,40 @@ public class FakeMqttBroker {
 	private volatile boolean closed;
 
 	public FakeMqttBroker() throws IOException {
-		serverSocket = new ServerSocket(0, 50, InetAddress.getLoopbackAddress());
+		ServerSocket socket = new ServerSocket(0, 50, InetAddress.getLoopbackAddress());
+		port = socket.getLocalPort();
+		listen(socket);
+	}
+
+	public String getServerURI() {
+		return "tcp://127.0.0.1:" + port;
+	}
+
+	/**
+	 * When true, the broker stops listening and drops all connections, so connects are refused
+	 * like by a broker that is down; when false, it listens on the same port again.
+	 */
+	public void setRefusing(boolean refusing) throws IOException {
+		if (refusing) {
+			serverSocket.close();
+			dropConnections();
+		} else if (serverSocket.isClosed()) {
+			ServerSocket socket = new ServerSocket();
+			socket.setReuseAddress(true);
+			socket.bind(new InetSocketAddress(InetAddress.getLoopbackAddress(), port), 50);
+			listen(socket);
+		}
+	}
+
+	private void listen(final ServerSocket socket) {
+		serverSocket = socket;
 		Thread acceptor = new Thread(new Runnable() {
 			public void run() {
-				acceptLoop();
+				acceptLoop(socket);
 			}
 		}, "FakeMqttBroker-accept");
 		acceptor.setDaemon(true);
 		acceptor.start();
-	}
-
-	public String getServerURI() {
-		return "tcp://127.0.0.1:" + serverSocket.getLocalPort();
 	}
 
 	/**
@@ -120,10 +144,10 @@ public class FakeMqttBroker {
 		dropConnections();
 	}
 
-	private void acceptLoop() {
-		while (!closed) {
+	private void acceptLoop(ServerSocket socket) {
+		while (!closed && !socket.isClosed()) {
 			try {
-				final Connection connection = new Connection(serverSocket.accept());
+				final Connection connection = new Connection(socket.accept());
 				connections.add(connection);
 				Thread reader = new Thread(new Runnable() {
 					public void run() {
