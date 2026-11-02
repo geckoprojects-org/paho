@@ -12,11 +12,13 @@
  *
  * Contributors:
  *    James Sutton - initial API and implementation and/or initial documentation
- *    Mark Hoffmann - automatic reconnect fixes
+ *    Mark Hoffmann - automatic reconnect fixes, warning for credentials without TLS
  */
 
 package org.eclipse.paho.mqttv5.client;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.util.Hashtable;
@@ -245,6 +247,8 @@ public class MqttAsyncClient implements MqttClientInterface, IMqttAsyncClient {
 	private final Object clientLock = new Object(); // Simple lock
 	// The application ended the automatic reconnect cycle (disconnect, close); guarded by clientLock
 	private boolean reconnectCycleEnded = false;
+	// whether the warning on credentials without TLS has been logged
+	private boolean cleartextWarned = false;
 
 	/**
 	 * Subscriptions made through this client, by topic filter, so they can be restored after an
@@ -672,6 +676,46 @@ public class MqttAsyncClient implements MqttClientInterface, IMqttAsyncClient {
 	}
 
 	/**
+	 * Warns once per client when credentials go over a connection without TLS
+	 * to a host other than the loopback interface (CWE-319). Looks at the URI
+	 * strings only; no name lookup.
+	 */
+	private void warnOnCleartextCredentials(MqttConnectionOptions options) {
+		if (cleartextWarned) {
+			return;
+		}
+		String[] uris = options.getServerURIs();
+		if (uris == null || uris.length == 0) {
+			uris = new String[] { serverURI };
+		}
+		for (String uri : uris) {
+			boolean ws = uri.startsWith("ws://");
+			if (!ws && !uri.startsWith("tcp://")) {
+				continue;
+			}
+			URI parsed;
+			try {
+				parsed = new URI(uri);
+			} catch (URISyntaxException e) {
+				continue;
+			}
+			boolean credentials = options.getPassword() != null
+					|| (ws && NetworkModuleService.getUserInfo(parsed) != null);
+			if (credentials && !isLoopback(NetworkModuleService.getHost(parsed))) {
+				cleartextWarned = true;
+				// @TRACE 120=Credentials are sent without TLS to {0}; use ssl:// or wss:// unless the network is protected otherwise
+				log.warning(CLASS_NAME, "connect", "120", new Object[] { uri });
+				return;
+			}
+		}
+	}
+
+	private static boolean isLoopback(String host) {
+		return host != null && (host.equalsIgnoreCase("localhost") || host.startsWith("127.")
+				|| host.equals("::1") || host.equals("[::1]"));
+	}
+
+	/**
 	 * Factory method to create the correct network module, based on the supplied
 	 * address URI.
 	 *
@@ -777,6 +821,7 @@ public class MqttAsyncClient implements MqttClientInterface, IMqttAsyncClient {
 						Integer.valueOf(options.getKeepAliveInterval()), options.getUserName(),
 						((null == options.getPassword()) ? "[null]" : "[notnull]"),
 						((null == options.getWillMessage()) ? "[null]" : "[notnull]"), userContext, callback });
+		warnOnCleartextCredentials(options);
 		comms.setNetworkModules(createNetworkModules(serverURI, options));
 		comms.setReconnectCallback(new MqttReconnectCallback(automaticReconnect));
 
