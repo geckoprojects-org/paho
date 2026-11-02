@@ -1,3 +1,0 @@
-org.jacoco:org.jacoco.agent:jar:runtime:${jacoco.version}
-org.jacoco:org.jacoco.agent:jar:${jacoco.version}
-org.jacoco:org.jacoco.core:${jacoco.version}

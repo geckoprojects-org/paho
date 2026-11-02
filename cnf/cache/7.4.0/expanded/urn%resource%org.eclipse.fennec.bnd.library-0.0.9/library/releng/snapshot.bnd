@@ -1,4 +1,0 @@
-# Add version extension
--snapshot: ${tstamp}-SNAPSHOT
--pom: version=${versionmask;===s;${@version}}
-
