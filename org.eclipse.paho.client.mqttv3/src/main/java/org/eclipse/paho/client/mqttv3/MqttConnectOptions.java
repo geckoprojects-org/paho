@@ -14,7 +14,7 @@
  *    Dave Locke - initial API and implementation and/or initial documentation
  *    Ian Craggs - MQTT 3.1.1 support
  *    James Sutton - Automatic Reconnect & Offline Buffering
- *    Mark Hoffmann - automaticResubscribe option, maximum inbound packet size, no secrets in log output
+ *    Mark Hoffmann - automaticResubscribe option, maximum inbound packet size, no secrets in log output, {xor} documented as obfuscation only
  */
 package org.eclipse.paho.client.mqttv3;
 
@@ -442,12 +442,12 @@ public class MqttConnectOptions {
 	 *
 	 * <dt>com.ibm.ssl.keyStorePassword</dt>
 	 * <dd>The password for the KeyStore object that you want the KeyManager to use.
-	 * The password can either be in plain-text, or may be obfuscated using the
-	 * static method:
-	 * <code>com.ibm.micro.security.Password.obfuscate(char[] password)</code>. This
-	 * obfuscates the password using a simple and insecure XOR and Base64 encoding
-	 * mechanism. Note that this is only a simple scrambler to obfuscate clear-text
-	 * passwords.</dd>
+	 * The password can either be in plain-text, or in the <code>{xor}</code>
+	 * form of <code>org.eclipse.paho.client.mqttv3.internal.security.SSLSocketFactoryFactory.obfuscate(char[])</code>.
+	 * That form is a simple XOR and Base64 encoding, not protection: anyone who
+	 * has the configuration has the password. To keep the password out of the
+	 * configuration, build the <code>SSLSocketFactory</code> from a secret store
+	 * and pass it with {@link #setSocketFactory(javax.net.SocketFactory)}.</dd>
 	 *
 	 * <dt>com.ibm.ssl.keyStoreType</dt>
 	 * <dd>Type of key store, for example "PKCS12", "JKS", or "JCEKS".</dd>
@@ -461,12 +461,12 @@ public class MqttConnectOptions {
 	 *
 	 * <dt>com.ibm.ssl.trustStorePassword</dt>
 	 * <dd>The password for the TrustStore object that you want the TrustManager to
-	 * use. The password can either be in plain-text, or may be obfuscated using the
-	 * static method:
-	 * <code>com.ibm.micro.security.Password.obfuscate(char[] password)</code>. This
-	 * obfuscates the password using a simple and insecure XOR and Base64 encoding
-	 * mechanism. Note that this is only a simple scrambler to obfuscate clear-text
-	 * passwords.</dd>
+	 * use. The password can either be in plain-text, or in the <code>{xor}</code>
+	 * form of <code>org.eclipse.paho.client.mqttv3.internal.security.SSLSocketFactoryFactory.obfuscate(char[])</code>.
+	 * That form is a simple XOR and Base64 encoding, not protection: anyone who
+	 * has the configuration has the password. To keep the password out of the
+	 * configuration, build the <code>SSLSocketFactory</code> from a secret store
+	 * and pass it with {@link #setSocketFactory(javax.net.SocketFactory)}.</dd>
 	 *
 	 * <dt>com.ibm.ssl.trustStoreType</dt>
 	 * <dd>The type of KeyStore object that you want the default TrustManager to
