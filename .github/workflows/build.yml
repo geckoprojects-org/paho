@@ -1,0 +1,57 @@
+# GitHub Actions is the pre-gate only: licence header check, build, test — on every branch.
+# Publishing is Jenkins' job (see Jenkinsfile), which is why there is no snapshot or release
+# workflow here.
+#
+# Self-contained on purpose, like the other geckoprojects-org repositories.
+name: CI Build
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+
+# Least privilege: this workflow only reads the repository.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Reads .licenserc.yaml at the repository root (skywalking-eyes format).
+      - name: Licence header check
+        uses: apache/skywalking-eyes/header@61275cc80d0798a405cb070f7d3a8aaf7cf2c2c1 # v0.8.0
+
+      - name: Set up Java 25
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      # Handles the Gradle distribution and dependency caching.
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
+
+      # `build` covers compile (Java 8 bytecode via --release 8), bnd bundle assembly and the
+      # broker-free JUnit tests (see build.gradle).
+      - name: Build
+        run: ./gradlew build --no-daemon --stacktrace
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: test-results
+          path: |
+            **/generated/test-reports/**/TEST-*.xml
+            **/build/test-results/**/TEST-*.xml
+          if-no-files-found: ignore
+          retention-days: 7

@@ -1,0 +1,85 @@
+header:
+  license:
+    content: |
+      Copyright (c) 2026 Data In Motion Consulting GmbH.
+
+      All rights reserved. This program and the accompanying materials
+      are made available under the terms of the Eclipse Public License v[12]\.0
+      and Eclipse Distribution License v1.0 which accompany this distribution.
+
+      The Eclipse Public License is available at
+         https://www.eclipse.org/legal/epl-2.0
+      and the Eclipse Distribution License is available at
+        https://www.eclipse.org/org/documents/edl-v10.php
+
+      Contributors:
+         Mark Hoffmann - initial API and implementation
+
+    # The Eclipse Paho header (EPL and EDL-1.0; a few upstream files still name EPL v1.0),
+    # whoever the copyright holder is.
+    pattern: |
+      are made available under the terms of the Eclipse Public License v[12]\.0
+      and Eclipse Distribution License v1.0 which accompany this distribution.
+
+  # Only the modules this repository builds; the rest of the upstream tree is not shipped.
+  paths:
+    - 'org.eclipse.paho.client.mqttv3/src/**/*.java'
+    - 'org.eclipse.paho.mqttv5.client/src/**/*.java'
+    - 'org.eclipse.paho.client.mqttv3.test/src/**/*.java'
+    - 'org.eclipse.paho.mqttv5.client.test/src/**/*.java'
+    - 'cnf/scripts/*.sh'
+    - 'test/broker/*.sh'
+
+  # Upstream Paho files that carry no licence header at all (as of upstream develop bd291f15).
+  # They are taken over unchanged; new files must have the header.
+  paths-ignore:
+    - 'org.eclipse.paho.client.mqttv3/src/main/java/org/eclipse/paho/client/mqttv3/IMqttActionListener.java'
+    - 'org.eclipse.paho.client.mqttv3/src/main/java/org/eclipse/paho/client/mqttv3/IMqttDeliveryToken.java'
+    - 'org.eclipse.paho.client.mqttv3/src/main/java/org/eclipse/paho/client/mqttv3/internal/websocket/ExtendedByteArrayOutputStream.java'
+    - 'org.eclipse.paho.client.mqttv3/src/main/java/org/eclipse/paho/client/mqttv3/persist/PersistanceFileFilter.java'
+    - 'org.eclipse.paho.client.mqttv3/src/main/java/org/eclipse/paho/client/mqttv3/persist/PersistanceFileNameFilter.java'
+    - 'org.eclipse.paho.client.mqttv3/src/main/java/org/eclipse/paho/client/mqttv3/spi/package-info.java'
+    - 'org.eclipse.paho.client.mqttv3.test/src/test/java/org/eclipse/paho/client/mqttv3/test/Bug443142Test.java'
+    - 'org.eclipse.paho.client.mqttv3.test/src/test/java/org/eclipse/paho/client/mqttv3/test/MqttConnectOptionsTest.java'
+    - 'org.eclipse.paho.client.mqttv3.test/src/test/java/org/eclipse/paho/client/mqttv3/test/MqttDataTypesTest.java'
+    - 'org.eclipse.paho.client.mqttv3.test/src/test/java/org/eclipse/paho/client/mqttv3/test/NetworkModuleServiceTest.java'
+    - 'org.eclipse.paho.client.mqttv3.test/src/test/java/org/eclipse/paho/client/mqttv3/test/utilities/ConnectionManipulationProxyServer.java'
+    - 'org.eclipse.paho.mqttv5.client/src/main/java/org/eclipse/paho/mqttv5/client/ConnectCallback.java'
+    - 'org.eclipse.paho.mqttv5.client/src/main/java/org/eclipse/paho/mqttv5/client/ConnectionLostCallback.java'
+    - 'org.eclipse.paho.mqttv5.client/src/main/java/org/eclipse/paho/mqttv5/client/ConnectionRecoveredCallback.java'
+    - 'org.eclipse.paho.mqttv5.client/src/main/java/org/eclipse/paho/mqttv5/client/FunctionalMqttClient.java'
+    - 'org.eclipse.paho.mqttv5.client/src/main/java/org/eclipse/paho/mqttv5/client/IMqttDeliveryToken.java'
+    - 'org.eclipse.paho.mqttv5.client/src/main/java/org/eclipse/paho/mqttv5/client/internal/MqttConnectionState.java'
+    - 'org.eclipse.paho.mqttv5.client/src/main/java/org/eclipse/paho/mqttv5/client/internal/MqttSessionState.java'
+    - 'org.eclipse.paho.mqttv5.client/src/main/java/org/eclipse/paho/mqttv5/client/MqttActionListener.java'
+    - 'org.eclipse.paho.mqttv5.client/src/main/java/org/eclipse/paho/mqttv5/client/MqttClientException.java'
+    - 'org.eclipse.paho.mqttv5.client/src/main/java/org/eclipse/paho/mqttv5/client/MqttClientInterface.java'
+    - 'org.eclipse.paho.mqttv5.client/src/main/java/org/eclipse/paho/mqttv5/client/MqttConnectionOptionsBuilder.java'
+    - 'org.eclipse.paho.mqttv5.client/src/main/java/org/eclipse/paho/mqttv5/client/MqttDisconnectResponse.java'
+    - 'org.eclipse.paho.mqttv5.client/src/main/java/org/eclipse/paho/mqttv5/client/persist/PersistenceFileFilter.java'
+    - 'org.eclipse.paho.mqttv5.client/src/main/java/org/eclipse/paho/mqttv5/client/persist/PersistenceFileNameFilter.java'
+    - 'org.eclipse.paho.mqttv5.client/src/main/java/org/eclipse/paho/mqttv5/client/spi/package-info.java'
+    - 'org.eclipse.paho.mqttv5.client/src/main/java/org/eclipse/paho/mqttv5/client/websocket/ExtendedByteArrayOutputStream.java'
+    - 'org.eclipse.paho.mqttv5.client/src/main/java/org/eclipse/paho/mqttv5/common/MqttException.java'
+    - 'org.eclipse.paho.mqttv5.client/src/main/java/org/eclipse/paho/mqttv5/common/MqttPersistenceException.java'
+    - 'org.eclipse.paho.mqttv5.client/src/main/java/org/eclipse/paho/mqttv5/common/packet/MqttDataTypes.java'
+    - 'org.eclipse.paho.mqttv5.client/src/main/java/org/eclipse/paho/mqttv5/common/packet/MqttProperties.java'
+    - 'org.eclipse.paho.mqttv5.client/src/main/java/org/eclipse/paho/mqttv5/common/packet/UserProperty.java'
+    - 'org.eclipse.paho.mqttv5.client/src/main/java/org/eclipse/paho/mqttv5/common/util/MqttTopicValidator.java'
+    - 'org.eclipse.paho.mqttv5.client/src/main/java/org/eclipse/paho/mqttv5/common/Validators.java'
+    - 'org.eclipse.paho.mqttv5.client.test/src/test/java/org/eclipse/paho/mqttv5/client/internal/NetworkModuleServiceTest.java'
+    - 'org.eclipse.paho.mqttv5.client.test/src/test/java/org/eclipse/paho/mqttv5/client/test/automaticReconnect/AutomaticReconnectTest.java'
+    - 'org.eclipse.paho.mqttv5.client.test/src/test/java/org/eclipse/paho/mqttv5/client/test/automaticReconnect/OfflineBufferingTest.java'
+    - 'org.eclipse.paho.mqttv5.client.test/src/test/java/org/eclipse/paho/mqttv5/client/test/automaticReconnect/TopicAliasReconnectTest.java'
+    - 'org.eclipse.paho.mqttv5.client.test/src/test/java/org/eclipse/paho/mqttv5/client/test/BasicTest.java'
+    - 'org.eclipse.paho.mqttv5.client.test/src/test/java/org/eclipse/paho/mqttv5/client/test/ClientIdTest.java'
+    - 'org.eclipse.paho.mqttv5.client.test/src/test/java/org/eclipse/paho/mqttv5/client/test/PersistenceTests.java'
+    - 'org.eclipse.paho.mqttv5.client.test/src/test/java/org/eclipse/paho/mqttv5/client/test/PublishTests.java'
+    - 'org.eclipse.paho.mqttv5.client.test/src/test/java/org/eclipse/paho/mqttv5/client/test/ServerAssignedClientIdentifierTest.java'
+    - 'org.eclipse.paho.mqttv5.client.test/src/test/java/org/eclipse/paho/mqttv5/client/test/SubscribeTests.java'
+    - 'org.eclipse.paho.mqttv5.client.test/src/test/java/org/eclipse/paho/mqttv5/client/test/utilities/ConnectionManipulationProxyServer.java'
+    - 'org.eclipse.paho.mqttv5.client.test/src/test/java/org/eclipse/paho/mqttv5/client/test/utilities/TestClientUtilities.java'
+    - 'org.eclipse.paho.mqttv5.client.test/src/test/java/org/eclipse/paho/mqttv5/common/MqttDataTypesTest.java'
+    - 'org.eclipse.paho.mqttv5.client.test/src/test/java/org/eclipse/paho/mqttv5/common/utils/StringValidationTest.java'
+
+  comment: on-failure

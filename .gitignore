@@ -69,3 +69,18 @@ client-1-tcpioteclipseorg1882
 testConnectTimeout
 
 
+
+### Gecko bnd/Gradle build
+/.gradle/
+build/
+generated/
+bin_test/
+src-gen/
+/cnf/cache/
+/cnf/localrepo/
+/cnf/release/
+# Upstream ignores these globally; the bnd workspace needs them in git.
+!gradle/wrapper/gradle-wrapper.jar
+!.project
+!.classpath
+!.settings/
