@@ -27,6 +27,8 @@ subprojects {
         // Gradle 9 fails `test` when it discovers no tests, e.g. in the client bundles, whose
         // tests live in the separate *.test modules (upstream layout).
         failOnNoDiscoveredTests = false
+        // Scales every wait of the tests (TestTiming); CI passes -Ppaho.test.timeFactor=2.
+        systemProperty 'paho.test.timeFactor', findProperty('paho.test.timeFactor') ?: '1'
     }
 
     // The Paho tests are JUnit 4; they run on the JUnit Platform through the vintage engine.
@@ -92,6 +94,7 @@ brokerTests.each { projectName, testClasses ->
             testClassesDirs = sourceSets.test.output.classesDirs
             classpath = sourceSets.test.runtimeClasspath
             useJUnitPlatform()
+            systemProperty 'paho.test.timeFactor', findProperty('paho.test.timeFactor') ?: '1'
             reports.junitXml.outputLocation = layout.buildDirectory.dir('test-results/brokerTest')
         }
     }

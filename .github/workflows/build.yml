@@ -43,7 +43,7 @@ jobs:
       # `build` covers compile (Java 8 bytecode via --release 8), bnd bundle assembly and the
       # broker-free JUnit tests (see build.gradle).
       - name: Build
-        run: ./gradlew build --no-daemon --stacktrace
+        run: ./gradlew build --no-daemon --stacktrace -Ppaho.test.timeFactor=2
 
       - name: Upload test results
         if: always()

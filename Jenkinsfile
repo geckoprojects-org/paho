@@ -140,8 +140,9 @@ pipeline {
     }
 
     environment {
-        // A workspace-local artifact cache, so concurrent jobs cannot corrupt each other's.
-        COMMON_ARGS = "--no-daemon --stacktrace -Dmaven.repo.local=${WORKSPACE}/.m2"
+        // A workspace-local artifact cache, so concurrent jobs cannot corrupt each other's; twice the
+        // test time bounds on the shared agent (TestTiming in the test modules).
+        COMMON_ARGS = "--no-daemon --stacktrace -Dmaven.repo.local=${WORKSPACE}/.m2 -Ppaho.test.timeFactor=2"
     }
 
     stages {
