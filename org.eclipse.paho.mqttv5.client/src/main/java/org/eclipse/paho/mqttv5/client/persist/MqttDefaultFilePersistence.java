@@ -12,6 +12,7 @@
  *
  * Contributors:
  *    Dave Locke - initial API and implementation and/or initial documentation
+ *    Mark Hoffmann - client directory restricted to its owner
  */
 package org.eclipse.paho.mqttv5.client.persist;
 
@@ -60,6 +61,13 @@ public class MqttDefaultFilePersistence implements MqttClientPersistence {
 		return FILENAME_FILTER;
 	}
 	
+	/**
+	 * Create a file-based persistent data store within the working directory
+	 * (<code>user.dir</code>). This is the persistence of the client constructors
+	 * without a persistence argument. The messages are stored in clear; prefer
+	 * an explicit directory, or {@link MemoryPersistence} if messages need not
+	 * survive a restart.
+	 */
 	public MqttDefaultFilePersistence()  { //throws MqttPersistenceException {
 		this(System.getProperty("user.dir"));
 	}
@@ -102,6 +110,7 @@ public class MqttDefaultFilePersistence implements MqttClientPersistence {
 				if (!clientDir.exists()) {
 					clientDir.mkdir();
 				}
+				restrictToOwner(clientDir);
 			}
 
 			try {
@@ -255,6 +264,20 @@ public class MqttDefaultFilePersistence implements MqttClientPersistence {
 		return files;
 	}
 	
+	/**
+	 * Restricts the client directory to its owner; it holds the payloads of
+	 * unacknowledged messages in clear. Best effort: a file system without
+	 * permissions, or a directory of another user, keeps what it has.
+	 */
+	private static void restrictToOwner(File dir) {
+		dir.setReadable(false, false);
+		dir.setReadable(true, true);
+		dir.setWritable(false, false);
+		dir.setWritable(true, true);
+		dir.setExecutable(false, false);
+		dir.setExecutable(true, true);
+	}
+
 	private boolean isSafeChar(char c) {
 		return Character.isJavaIdentifierPart(c) || c=='-';
 	}
