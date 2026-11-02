@@ -16,12 +16,12 @@ are.
 | [#4](https://github.com/geckoprojects-org/paho/issues/4) | [#493](https://github.com/eclipse-paho/paho.mqtt.java/issues/493) | v3, v5 | New option `automaticResubscribe` (default `true`): subscriptions are restored after an automatic reconnect without session. |
 | [#5](https://github.com/geckoprojects-org/paho/issues/5) | – | v3, v5 | Broker host names with `_` work on Java 16+; the reflection on `java.net.URI` that failed there is no longer needed. |
 | [#6](https://github.com/geckoprojects-org/paho/issues/6) | [#857](https://github.com/eclipse-paho/paho.mqtt.java/issues/857) | v5 | The OSGi bundle exports the API packages (`common`, `common.packet`, …), not only `org.eclipse.paho.mqttv5.client`. |
+| [#7](https://github.com/geckoprojects-org/paho/issues/7) | [#425](https://github.com/eclipse-paho/paho.mqtt.java/issues/425), [#654](https://github.com/eclipse-paho/paho.mqtt.java/issues/654) | v3, v5 | `disconnect()` and `close()` end the automatic reconnect cycle: no reconnect after `disconnect()`, no reconnect thread after `close()`, no `NullPointerException` from `reconnect()` before `connect()`. |
 
 ## Open, confirmed
 
 | Issue | Upstream | Clients | Summary |
 |---|---|---|---|
-| [#7](https://github.com/geckoprojects-org/paho/issues/7) | [#425](https://github.com/eclipse-paho/paho.mqtt.java/issues/425), [#654](https://github.com/eclipse-paho/paho.mqtt.java/issues/654) | v3, v5 | `disconnect()`/`close()` do not stop the reconnect cycle; the timer reconnects after `disconnect()` and its thread survives `close()`. |
 | [#8](https://github.com/geckoprojects-org/paho/issues/8) | [#958](https://github.com/eclipse-paho/paho.mqtt.java/issues/958) | v3, v5 | Keep-alive pings are scheduled on the wall clock; a time jump back delays them. Workaround: pass a `ScheduledExecutorService` to the client. |
 
 ## Open, to be reproduced
