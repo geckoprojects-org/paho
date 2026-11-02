@@ -39,7 +39,8 @@ subprojects {
 }
 
 // Most upstream Paho tests need an MQTT broker on localhost:1883. `test` leaves those out, so new
-// tests run in the normal build without being registered here.
+// tests run in the normal build without being registered here; `brokerTest` runs everything
+// against the broker of test/broker/start-broker.sh.
 def brokerTests = [
     'org.eclipse.paho.client.mqttv3.test': [
         'org.eclipse.paho.client.mqttv3.test.automaticReconnect.AutomaticReconnectTest',
@@ -84,6 +85,14 @@ brokerTests.each { projectName, testClasses ->
             filter {
                 testClasses.each { excludeTestsMatching it }
             }
+        }
+        tasks.register('brokerTest', Test) {
+            description = 'Runs all tests against the broker started by test/broker/start-broker.sh.'
+            group = 'verification'
+            testClassesDirs = sourceSets.test.output.classesDirs
+            classpath = sourceSets.test.runtimeClasspath
+            useJUnitPlatform()
+            reports.junitXml.outputLocation = layout.buildDirectory.dir('test-results/brokerTest')
         }
     }
 }

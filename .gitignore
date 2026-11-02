@@ -84,3 +84,8 @@ src-gen/
 !.project
 !.classpath
 !.settings/
+# File persistence and logs written by the broker tests (./gradlew brokerTest)
+org.eclipse.paho.*.test/paho*-*/
+org.eclipse.paho.*.test/test*/
+org.eclipse.paho.*.test/client-*/
+org.eclipse.paho.*.test/framework.log*
