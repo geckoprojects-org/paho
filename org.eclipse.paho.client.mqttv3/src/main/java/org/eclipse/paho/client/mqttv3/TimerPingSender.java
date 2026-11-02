@@ -13,10 +13,9 @@
 
 package org.eclipse.paho.client.mqttv3;
 
-import java.util.Timer;
-import java.util.TimerTask;
 
 import org.eclipse.paho.client.mqttv3.internal.ClientComms;
+import org.eclipse.paho.client.mqttv3.internal.MonotonicTimer;
 import org.eclipse.paho.client.mqttv3.logging.Logger;
 import org.eclipse.paho.client.mqttv3.logging.LoggerFactory;
 
@@ -34,7 +33,7 @@ public class TimerPingSender implements MqttPingSender {
 	private Logger log = LoggerFactory.getLogger(LoggerFactory.MQTT_CLIENT_MSG_CAT,CLASS_NAME);
 
 	private ClientComms comms;
-	private Timer timer;
+	private MonotonicTimer timer;
 	private String clientid;
 
 	public void init(ClientComms comms) {
@@ -52,7 +51,7 @@ public class TimerPingSender implements MqttPingSender {
 		//@Trace 659=start timer for client:{0}
 		log.fine(CLASS_NAME, methodName, "659", new Object[]{clientid});
 				
-		timer = new Timer("MQTT Ping: " + clientid);
+		timer = new MonotonicTimer("MQTT Ping: " + clientid);
 		//Check ping after first keep alive interval.
 		timer.schedule(new PingTask(), comms.getKeepAlive());
 	}
@@ -70,7 +69,7 @@ public class TimerPingSender implements MqttPingSender {
 		timer.schedule(new PingTask(), delayInMilliseconds);		
 	}
 	
-	private class PingTask extends TimerTask {
+	private class PingTask implements Runnable {
 		private static final String methodName = "PingTask.run";
 		
 		public void run() {

@@ -28,8 +28,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.Timer;
-import java.util.TimerTask;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 
@@ -39,6 +37,7 @@ import org.eclipse.paho.client.mqttv3.internal.ConnectActionListener;
 import org.eclipse.paho.client.mqttv3.internal.DisconnectedMessageBuffer;
 import org.eclipse.paho.client.mqttv3.internal.ExceptionHelper;
 import org.eclipse.paho.client.mqttv3.internal.HighResolutionTimer;
+import org.eclipse.paho.client.mqttv3.internal.MonotonicTimer;
 import org.eclipse.paho.client.mqttv3.internal.SystemHighResolutionTimer;
 import org.eclipse.paho.client.mqttv3.internal.NetworkModule;
 import org.eclipse.paho.client.mqttv3.internal.NetworkModuleService;
@@ -114,7 +113,7 @@ public class MqttAsyncClient implements IMqttAsyncClient {
 	private MqttCallback mqttCallback;
 	private MqttConnectOptions connOpts;
 	private Object userContext;
-	private Timer reconnectTimer; // Automatic reconnect timer
+	private MonotonicTimer reconnectTimer; // Automatic reconnect timer
 	private int reconnectDelay = 1000; // Reconnect delay, starts at 1
 												// second
 	private boolean reconnecting = false;
@@ -1544,7 +1543,7 @@ public class MqttAsyncClient implements IMqttAsyncClient {
 		String methodName = "startReconnectCycle";
 		// @Trace 503=Start reconnect timer for client: {0}, delay: {1}
 		log.fine(CLASS_NAME, methodName, "503", new Object[] { this.clientId, Long.valueOf(reconnectDelay) });
-		reconnectTimer = new Timer("MQTT Reconnect: " + clientId);
+		reconnectTimer = new MonotonicTimer("MQTT Reconnect: " + clientId);
 		reconnectTimer.schedule(new ReconnectTask(), reconnectDelay);
 	}
 
@@ -1580,7 +1579,7 @@ public class MqttAsyncClient implements IMqttAsyncClient {
 		}
 	}
 
-	private class ReconnectTask extends TimerTask {
+	private class ReconnectTask implements Runnable {
 		private static final String methodName = "ReconnectTask.run";
 
 		public void run() {

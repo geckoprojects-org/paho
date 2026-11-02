@@ -53,6 +53,7 @@ public class FakeMqttBroker {
 	/** Entries "connectNumber:topicFilter", one per filter in each SUBSCRIBE. */
 	private final List<String> subscriptions = new CopyOnWriteArrayList<String>();
 	private final AtomicInteger connects = new AtomicInteger();
+	private final AtomicInteger pings = new AtomicInteger();
 	private volatile boolean answering = true;
 	private volatile boolean closed;
 
@@ -104,6 +105,11 @@ public class FakeMqttBroker {
 	/** Number of CONNECT packets received so far. */
 	public int getConnectCount() {
 		return connects.get();
+	}
+
+	/** Number of PINGREQ packets received so far. */
+	public int getPingCount() {
+		return pings.get();
 	}
 
 	/** Topic filters subscribed on the connection opened by the n-th CONNECT (1-based). */
@@ -252,6 +258,7 @@ public class FakeMqttBroker {
 					}
 				}
 			} else if (type == PINGREQ) {
+				pings.incrementAndGet();
 				if (answering) {
 					send(0xD0, new byte[0]);
 				}
