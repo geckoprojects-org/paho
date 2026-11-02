@@ -12,6 +12,7 @@
  *
  * Contributors:
  *    James Sutton - Bug 459142 - WebSocket support for the Java client.
+ *    Mark Hoffmann - bounded WebSocket input
  */
 package org.eclipse.paho.client.mqttv3.internal.websocket;
 
@@ -41,6 +42,7 @@ public class WebSocketNetworkModule extends TCPNetworkModule {
 	private Map<String, String> customWebsocketHeaders;
 	private PipedInputStream pipedInputStream;
 	private WebSocketReceiver webSocketReceiver;
+	private int maxFramePayloadLength = WebSocketFrame.MAX_PAYLOAD_LENGTH;
 	private final boolean skipPortDuringHandshake;
 	ByteBuffer recievedPayload;
 	
@@ -66,7 +68,7 @@ public class WebSocketNetworkModule extends TCPNetworkModule {
 		super.start();
 		WebSocketHandshake handshake = new WebSocketHandshake(getSocketInputStream(), getSocketOutputStream(), uri, host, port, customWebsocketHeaders, skipPortDuringHandshake);
 		handshake.execute();
-		this.webSocketReceiver = new WebSocketReceiver(getSocketInputStream(), pipedInputStream);
+		this.webSocketReceiver = new WebSocketReceiver(getSocketInputStream(), pipedInputStream, maxFramePayloadLength);
 		webSocketReceiver.start("webSocketReceiver");
 	}
 	
@@ -106,4 +108,15 @@ public class WebSocketNetworkModule extends TCPNetworkModule {
 		return "ws://" + host + ":" + port;
 	}
 	
+
+	/**
+	 * Sets the largest payload of an inbound WebSocket frame; the client's
+	 * maximum inbound packet size.
+	 *
+	 * @param maxFramePayloadLength
+	 *            the limit in bytes
+	 */
+	public void setMaxFramePayloadLength(int maxFramePayloadLength) {
+		this.maxFramePayloadLength = maxFramePayloadLength;
+	}
 }

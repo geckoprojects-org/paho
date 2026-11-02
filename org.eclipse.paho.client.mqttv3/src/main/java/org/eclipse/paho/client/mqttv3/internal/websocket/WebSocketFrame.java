@@ -12,15 +12,24 @@
  *
  * Contributors:
  *    James Sutton - Bug 459142 - WebSocket support for the Java client.
+ *    Mark Hoffmann - bounded WebSocket input
  */
 package org.eclipse.paho.client.mqttv3.internal.websocket;
 
+import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.security.SecureRandom;
 
 public class WebSocketFrame {
+
+	/**
+	 * The largest payload of an inbound frame unless the client sets a lower
+	 * limit: the largest MQTT packet (fixed header and remaining length).
+	 */
+	public static final int MAX_PAYLOAD_LENGTH = 268435455 + 5;
+
 
 	public static final int frameLengthOverhead = 6;
 
@@ -138,12 +147,29 @@ public class WebSocketFrame {
 	 *             if an exception occurs whilst reading the input stream
 	 */
 	public WebSocketFrame(InputStream input) throws IOException {
-		byte firstByte = (byte) input.read();
+		this(input, MAX_PAYLOAD_LENGTH);
+	}
+
+	/**
+	 * Reads a frame from the input stream. The payload length is checked
+	 * before the payload is allocated.
+	 *
+	 * @param input
+	 *            The incoming {@link InputStream}
+	 * @param maxPayloadLength
+	 *            the largest payload accepted
+	 * @throws IOException
+	 *             if an exception occurs whilst reading the input stream, the
+	 *             stream ends within the frame or the payload is longer than
+	 *             <code>maxPayloadLength</code>
+	 */
+	public WebSocketFrame(InputStream input, int maxPayloadLength) throws IOException {
+		byte firstByte = (byte) readByte(input);
 		setFinAndOpCode(firstByte);
 		if (this.opcode == 2) {
-			byte maskLengthByte = (byte) input.read();
+			int maskLengthByte = readByte(input);
 			boolean masked = ((maskLengthByte & 0x80) != 0);
-			int payloadLength = (byte) (0x7F & maskLengthByte);
+			long payloadLength = maskLengthByte & 0x7F;
 			int byteCount = 0;
 			if (payloadLength == 0X7F) {
 				// 8 Byte Extended payload length
@@ -153,31 +179,30 @@ public class WebSocketFrame {
 				byteCount = 2;
 			}
 
-			// Decode the payload length
+			// Decode the payload length; checked per byte, so that the
+			// 64-bit length cannot overflow
 			if (byteCount > 0) {
 				payloadLength = 0;
 			}
 			while (--byteCount >= 0) {
-				maskLengthByte = (byte) input.read();
-				payloadLength |= (maskLengthByte & 0xFF) << (8 * byteCount);
+				payloadLength = (payloadLength << 8) | readByte(input);
+				if (payloadLength > maxPayloadLength) {
+					break;
+				}
+			}
+			if (payloadLength > maxPayloadLength) {
+				throw new IOException("Invalid Frame: payload longer than " + maxPayloadLength + " bytes");
 			}
 
 			// Get the masking key
 			byte[] maskingKey = null;
 			if (masked) {
 				maskingKey = new byte[4];
-				input.read(maskingKey, 0, 4);
+				readFully(input, maskingKey);
 			}
 
-			this.payload = new byte[payloadLength];
-			int offsetIndex = 0;
-			int tempLength = payloadLength;
-			int bytesRead = 0;
-			while (offsetIndex != payloadLength) {
-				bytesRead = input.read(this.payload, offsetIndex, tempLength);
-				offsetIndex += bytesRead;
-				tempLength -= bytesRead;
-			}
+			this.payload = new byte[(int) payloadLength];
+			readFully(input, this.payload);
 
 			// Demask if needed
 			if (masked) {
@@ -192,7 +217,25 @@ public class WebSocketFrame {
 		} else {
 			throw new IOException("Invalid Frame: Opcode: " + this.opcode);
 		}
+	}
 
+	private static int readByte(InputStream input) throws IOException {
+		int b = input.read();
+		if (b < 0) {
+			throw new EOFException("Invalid Frame: end of stream");
+		}
+		return b;
+	}
+
+	private static void readFully(InputStream input, byte[] buffer) throws IOException {
+		int offset = 0;
+		while (offset < buffer.length) {
+			int count = input.read(buffer, offset, buffer.length - offset);
+			if (count < 0) {
+				throw new EOFException("Invalid Frame: end of stream");
+			}
+			offset += count;
+		}
 	}
 
 	/**

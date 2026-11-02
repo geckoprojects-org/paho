@@ -12,6 +12,7 @@
  *
  * Contributors:
  *    James Sutton - Bug 459142 - WebSocket support for the Java client.
+ *    Mark Hoffmann - bounded WebSocket input
  */
 package org.eclipse.paho.client.mqttv3.internal.websocket;
 
@@ -25,6 +26,7 @@ import org.eclipse.paho.client.mqttv3.logging.Logger;
 import org.eclipse.paho.client.mqttv3.logging.LoggerFactory;
 
 public class WebSocketReceiver implements Runnable{
+	private final int maxPayloadLength;
 
 	private static final String CLASS_NAME = WebSocketReceiver.class.getName();
 	private Logger log = LoggerFactory.getLogger(LoggerFactory.MQTT_CLIENT_MSG_CAT, CLASS_NAME);
@@ -38,6 +40,17 @@ public class WebSocketReceiver implements Runnable{
 	private PipedOutputStream pipedOutputStream;
 
 	public WebSocketReceiver(InputStream input, PipedInputStream pipedInputStream) throws IOException{
+		this(input, pipedInputStream, WebSocketFrame.MAX_PAYLOAD_LENGTH);
+	}
+
+	/**
+	 * @param input the socket's input stream
+	 * @param pipedInputStream the stream the payload of the frames goes to
+	 * @param maxPayloadLength the largest frame payload accepted
+	 * @throws IOException if the pipe cannot be connected
+	 */
+	public WebSocketReceiver(InputStream input, PipedInputStream pipedInputStream, int maxPayloadLength) throws IOException{
+		this.maxPayloadLength = maxPayloadLength;
 		this.input = input;
 		this.pipedOutputStream = new PipedOutputStream();
 		pipedInputStream.connect(pipedOutputStream);
@@ -101,7 +114,7 @@ public class WebSocketReceiver implements Runnable{
 				//@TRACE 852=network read message
 				log.fine(CLASS_NAME, methodName, "852");
 				receiving = input.available() > 0;
-				WebSocketFrame incomingFrame = new WebSocketFrame(input);
+				WebSocketFrame incomingFrame = new WebSocketFrame(input, maxPayloadLength);
 				if(!incomingFrame.isCloseFlag()){
 					for(int i = 0; i < incomingFrame.getPayload().length; i++){
 						pipedOutputStream.write(incomingFrame.getPayload()[i]);

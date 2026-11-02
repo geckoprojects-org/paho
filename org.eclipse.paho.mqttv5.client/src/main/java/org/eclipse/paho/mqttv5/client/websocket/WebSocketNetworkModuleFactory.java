@@ -56,6 +56,10 @@ public class WebSocketNetworkModuleFactory implements NetworkModuleFactory {
 		WebSocketNetworkModule netModule = new WebSocketNetworkModule(factory, brokerUri.toString(), host, port,
 				clientId);
 		netModule.setConnectTimeout(options.getConnectionTimeout());
+		Long maximumPacketSize = options.getMaximumPacketSize();
+		if (maximumPacketSize != null && maximumPacketSize.longValue() < WebSocketFrame.MAX_PAYLOAD_LENGTH) {
+			netModule.setMaxFramePayloadLength(maximumPacketSize.intValue());
+		}
 		netModule.setCustomWebSocketHeaders(options.getCustomWebSocketHeaders());
 		return netModule;
 	}

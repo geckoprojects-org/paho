@@ -12,14 +12,12 @@
  *
  * Contributors:
  *    James Sutton - Bug 459142 - WebSocket support for the Java client.
- *    Mark Hoffmann - host names beyond RFC 2396 without URI reflection
+ *    Mark Hoffmann - host names beyond RFC 2396 without URI reflection, bounded WebSocket input
  */
 package org.eclipse.paho.mqttv5.client.websocket;
 
-import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.net.URI;
@@ -138,21 +136,11 @@ public class WebSocketHandshake {
 	 * @throws IOException
 	 */
 	private void receiveHandshakeResponse(String key) throws IOException {
-		BufferedReader in = new BufferedReader(new InputStreamReader(input));
-		ArrayList<String> responseLines = new ArrayList<>();
-		String line = in.readLine();
-		if (line == null) {
-			throw new IOException(
-					"WebSocket Response header: Invalid response from Server, It may not support WebSockets.");
-		}
-		while (!line.equals(EMPTY)) {
-			responseLines.add(line);
-			line = in.readLine();
-		}
+		ArrayList<String> responseLines = readResponseHeader(input);
 		Map<String, String> headerMap = getHeaders(responseLines);
 
 		String connectionHeader = headerMap.get(HTTP_HEADER_CONNECTION);
-		if (connectionHeader == null || connectionHeader.equalsIgnoreCase(HTTP_HEADER_CONNECTION_VALUE)) {
+		if (connectionHeader == null || !connectionHeader.toLowerCase().contains(HTTP_HEADER_CONNECTION_VALUE)) {
 			throw new IOException("WebSocket Response header: Incorrect connection header");
 		}
 
@@ -181,6 +169,48 @@ public class WebSocketHandshake {
 	}
 
 	/**
+	 * Upper bound for the response header of the handshake; that of an MQTT
+	 * broker has a few hundred bytes.
+	 */
+	private static final int MAX_RESPONSE_HEADER_LENGTH = 16 * 1024;
+
+	/**
+	 * Reads the response header up to the empty line. Byte by byte, so that
+	 * nothing after it, the first WebSocket frame, is consumed, and bounded by
+	 * {@link #MAX_RESPONSE_HEADER_LENGTH}.
+	 */
+	private static ArrayList<String> readResponseHeader(InputStream input) throws IOException {
+		ArrayList<String> lines = new ArrayList<String>();
+		StringBuilder line = new StringBuilder();
+		int length = 0;
+		while (true) {
+			int b = input.read();
+			if (b < 0) {
+				if (length == 0) {
+					throw new IOException("WebSocket Response header: Invalid response from Server, It may not support WebSockets.");
+				}
+				throw new IOException("WebSocket Response header: incomplete, end of stream");
+			}
+			if (++length > MAX_RESPONSE_HEADER_LENGTH) {
+				throw new IOException("WebSocket Response header: longer than " + MAX_RESPONSE_HEADER_LENGTH + " bytes");
+			}
+			if (b == '\n') {
+				int end = line.length();
+				if (end > 0 && line.charAt(end - 1) == '\r') {
+					line.setLength(end - 1);
+				}
+				if (line.length() == 0) {
+					return lines;
+				}
+				lines.add(line.toString());
+				line.setLength(0);
+			} else {
+				line.append((char) b);
+			}
+		}
+	}
+
+	/**
 	 * Returns a Hashmap of HTTP headers
 	 * 
 	 * @param headers
@@ -191,8 +221,12 @@ public class WebSocketHandshake {
 		Map<String, String> headerMap = new HashMap<>();
 		for (int i = 1; i < headers.size(); i++) {
 			String headerPre = headers.get(i);
-			String[] header = headerPre.split(":");
-			headerMap.put(header[0].toLowerCase(), header[1]);
+			int colon = headerPre.indexOf(':');
+			if (colon < 0) {
+				// not a header field
+				continue;
+			}
+			headerMap.put(headerPre.substring(0, colon).trim().toLowerCase(), headerPre.substring(colon + 1).trim());
 		}
 		return headerMap;
 	}

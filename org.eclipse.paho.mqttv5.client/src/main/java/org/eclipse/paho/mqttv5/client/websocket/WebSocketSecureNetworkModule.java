@@ -12,6 +12,7 @@
  *
  * Contributors:
  *    James Sutton - Bug 459142 - WebSocket support for the Java client.
+ *    Mark Hoffmann - bounded WebSocket input
  */
 package org.eclipse.paho.mqttv5.client.websocket;
 
@@ -37,6 +38,7 @@ public class WebSocketSecureNetworkModule extends SSLNetworkModule{
 	
 	private PipedInputStream pipedInputStream;
 	private WebSocketReceiver webSocketReceiver;
+	private int maxFramePayloadLength = WebSocketFrame.MAX_PAYLOAD_LENGTH;
 	private String uri;
 	private String host;
 	private int port;
@@ -63,7 +65,7 @@ public class WebSocketSecureNetworkModule extends SSLNetworkModule{
 		super.start();
 		WebSocketHandshake handshake = new WebSocketHandshake(super.getInputStream(), super.getOutputStream(), uri, host, port, customWebSocketHeaders);
 		handshake.execute();
-		this.webSocketReceiver = new WebSocketReceiver(getSocketInputStream(), pipedInputStream);
+		this.webSocketReceiver = new WebSocketReceiver(getSocketInputStream(), pipedInputStream, maxFramePayloadLength);
 		webSocketReceiver.start("WssSocketReceiver");
 
 	}
@@ -107,5 +109,14 @@ public class WebSocketSecureNetworkModule extends SSLNetworkModule{
 	
 	
 
-
+	/**
+	 * Sets the largest payload of an inbound WebSocket frame; the client's
+	 * maximum inbound packet size.
+	 *
+	 * @param maxFramePayloadLength
+	 *            the limit in bytes
+	 */
+	public void setMaxFramePayloadLength(int maxFramePayloadLength) {
+		this.maxFramePayloadLength = maxFramePayloadLength;
+	}
 }
