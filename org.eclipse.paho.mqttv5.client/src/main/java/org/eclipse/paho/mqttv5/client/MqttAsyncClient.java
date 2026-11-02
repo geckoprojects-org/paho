@@ -1586,12 +1586,20 @@ public class MqttAsyncClient implements MqttClientInterface, IMqttAsyncClient {
 		log.fine(CLASS_NAME, methodName, "500", new Object[] { this.mqttSession.getClientId() });
 		try {
 			connect(this.connOpts, this.userContext, new MqttReconnectActionListener(methodName));
-		} catch (MqttSecurityException ex) {
-			// @TRACE 804=exception
-			log.fine(CLASS_NAME, methodName, "804", null, ex);
 		} catch (MqttException ex) {
 			// @TRACE 804=exception
 			log.fine(CLASS_NAME, methodName, "804", null, ex);
+			// connect() refused the attempt synchronously, e.g. because a connect from elsewhere is
+			// in progress or the client is meanwhile connected. Formerly the cycle ended here in
+			// silence; keep it alive unless there is nothing left to do.
+			if (comms.isConnected()) {
+				stopReconnectCycle();
+			} else if (!comms.isClosed()) {
+				// @TRACE 522=Reconnect attempt rejected with reason code {0}, rescheduling: {1}
+				log.fine(CLASS_NAME, methodName, "522",
+						new Object[] { Integer.valueOf(ex.getReasonCode()), this.mqttSession.getClientId() });
+				new MqttReconnectActionListener(methodName).backOffAndReschedule();
+			}
 		}
 	}
 
@@ -1683,6 +1691,10 @@ public class MqttAsyncClient implements MqttClientInterface, IMqttAsyncClient {
 		public void onFailure(IMqttToken asyncActionToken, Throwable exception) {
 			// @Trace 502=Automatic Reconnect failed, rescheduling: {0}
 			log.fine(CLASS_NAME, methodName, "502", new Object[] { asyncActionToken.getClient().getClientId() });
+			backOffAndReschedule();
+		}
+
+		void backOffAndReschedule() {
 			if (reconnectDelay < connOpts.getMaxReconnectDelay()) {
 				reconnectDelay = reconnectDelay * 2;
 			}
