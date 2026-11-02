@@ -10,6 +10,9 @@ not an official Eclipse release. It carries the upstream history and adds:
   shutdown (v3).
 - **Delivery fixes** (v3, v5): sequential QoS 1/2 publishes no longer get "Too many publishes in
   progress"; a message without callback or listener is acknowledged instead of redelivered forever.
+- **Security fixes** (v3, v5): inbound packets and WebSocket frames are size-limited by default
+  (1 MiB) and checked before allocation; no passwords in the log; owner-only file persistence;
+  a warning for credentials without TLS; random client ids.
 - **Java 16+:** broker host names with `_` work without reflection on `java.net.URI`.
 - **Resubscribe after reconnect:** new option `automaticResubscribe` (default `true`).
 - **OSGi and build:** a bnd workspace build (Gradle 9, JDK 25, Java 8 bytecode) instead of
