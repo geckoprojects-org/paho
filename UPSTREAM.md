@@ -22,20 +22,39 @@ are.
 | [#10](https://github.com/geckoprojects-org/paho/issues/10) | [#551](https://github.com/eclipse-paho/paho.mqtt.java/issues/551) | v3, v5 | The in-flight slot of a QoS 1/2 publish is freed before the waiting publisher resumes; sequential publishes no longer get "Too many publishes in progress". |
 | [#11](https://github.com/geckoprojects-org/paho/issues/11) | [#828](https://github.com/eclipse-paho/paho.mqtt.java/issues/828) | v3, v5 | A QoS 1/2 message that arrives without callback or message listener (e.g. from a persistent session before `subscribe`) is acknowledged and discarded with a warning, instead of being dropped without PUBACK and redelivered on every connect. |
 
+## Behaviour changes for applications
+
+What existing application code may notice when switching from upstream 1.2.5:
+
+- **`automaticResubscribe` is on by default** (#4). After an automatic reconnect without session
+  the client re-subscribes on its own. An application that also re-subscribes in `connectComplete`
+  subscribes twice, which is harmless at the broker; set the option to `false` to keep doing it
+  yourself.
+- **`connectionTimeout` also bounds the wait for the CONNACK** (#1). A connect attempt to a server
+  that accepts the TCP connection but never answers fails after the timeout instead of hanging.
+  `0` keeps waiting indefinitely, as before.
+- **`disconnect()` and `close()` end the automatic reconnect cycle** (#7). `reconnect()` without a
+  previous `connect()` throws `REASON_CODE_CLIENT_NOT_CONNECTED` instead of a
+  `NullPointerException`.
+- **A message without callback or message listener is acknowledged and discarded** (#11), with a
+  warning in the log, also with manual acknowledgements. Set the `MqttCallback` before `connect()`
+  so that messages of a persistent session are not discarded.
+- **Pings and reconnect delays follow the monotonic clock** (#8). Same threads as before.
+
 ## Planned
 
 | Issue | Upstream | Clients | Summary |
 |---|---|---|---|
 | [#23](https://github.com/geckoprojects-org/paho/issues/23) | – | v3, v5 | Use the application's `ScheduledExecutorService` for the reconnect timer (and the v3 pings) instead of a thread per client. |
 
-## Open, to be reproduced
-
-| Issue | Upstream | Clients | Summary |
-|---|---|---|---|
-| [#12](https://github.com/geckoprojects-org/paho/issues/12) | [#1098](https://github.com/eclipse-paho/paho.mqtt.java/issues/1098), [#1099](https://github.com/eclipse-paho/paho.mqtt.java/issues/1099) | v3 | Several clients in one JVM: TCP without CONNECT after a broker restart. Investigated, not reproduced so far. |
-
 ## Checked, no change needed
 
+- [#12](https://github.com/geckoprojects-org/paho/issues/12), upstream
+  [#1098](https://github.com/eclipse-paho/paho.mqtt.java/issues/1098) and
+  [#1099](https://github.com/eclipse-paho/paho.mqtt.java/issues/1099) (several clients in one JVM:
+  TCP without CONNECT or a second CONNECT after a broker restart): not reproduced with up to 50
+  clients, broker restarts, persistent sessions, slow consumers and the 3.1.1 → 3.1 fallback. The
+  only candidate in the code would no longer leave a client hanging, since #1 and #3.
 - Upstream [#816](https://github.com/eclipse-paho/paho.mqtt.java/issues/816) and
   [#826](https://github.com/eclipse-paho/paho.mqtt.java/issues/826) (v5 `subscribe`) are already
   fixed on upstream `develop`, which this build is based on.
@@ -52,8 +71,14 @@ Not upstream contributions, but different from an upstream build:
 - bnd workspace build (Gradle 9, JDK 25, Java 8 bytecode) instead of Maven/Tycho; Maven coordinates
   `org.geckoprojects.paho:org.eclipse.paho.client.mqttv3` / `org.eclipse.paho.mqttv5.client`,
   version line 1.3.x.
-- Mosquitto 2 test broker in a container and renewed test certificates (the upstream ones expired
-  in 2018); see the README.
+- Snapshots (`1.3.0-SNAPSHOT`) are published by Jenkins from the branch `snapshot` to the DIM Nexus
+  and the Maven Central snapshot repository; releases from `main` to the DIM Nexus and Maven
+  Central.
+- Tests that need no broker run in every build, against an in-process `FakeMqttBroker` that can
+  go silent, refuse connections or drop them; their waits scale with `-Ppaho.test.timeFactor`
+  (CI: 2). The upstream broker tests run with `./gradlew brokerTest` against a Mosquitto 2 test
+  broker in a container, with renewed test certificates (the upstream ones expired in 2018); see
+  the README.
 - Upstream modules that are not built here (samples, trace formatter, p2 repositories) are removed.
 
 ## Contributing back
