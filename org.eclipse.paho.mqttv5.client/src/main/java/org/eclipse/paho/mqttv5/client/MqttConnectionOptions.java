@@ -15,7 +15,7 @@
  *    Ian Craggs - MQTT 3.1.1 support
  *    James Sutton - Automatic Reconnect & Offline Buffering
  *    James Sutton - MQTT v5
- *    Mark Hoffmann - automaticResubscribe option, maximum inbound packet size
+ *    Mark Hoffmann - automaticResubscribe option, maximum inbound packet size, no secrets in log output
  */
 package org.eclipse.paho.mqttv5.client;
 
@@ -965,9 +965,21 @@ public class MqttConnectionOptions {
 		if (getSSLProperties() == null) {
 			p.put("SSLProperties", strNull);
 		} else {
-			p.put("SSLProperties", getSSLProperties());
+			p.put("SSLProperties", hidePasswords(getSSLProperties()));
 		}
 		return p;
+	}
+
+	/**
+	 * A copy of the SSL properties for diagnostic output, with the values of
+	 * all password properties hidden.
+	 */
+	private static Properties hidePasswords(Properties properties) {
+		Properties hidden = new Properties();
+		for (String key : properties.stringPropertyNames()) {
+			hidden.put(key, key.toLowerCase().contains("password") ? "<hidden>" : properties.getProperty(key));
+		}
+		return hidden;
 	}
 
 	/**

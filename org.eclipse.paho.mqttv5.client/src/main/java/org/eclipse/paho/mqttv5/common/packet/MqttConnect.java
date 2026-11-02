@@ -13,6 +13,7 @@
  * Contributors:
  * 	  Dave Locke   - Original MQTTv3 implementation
  *    James Sutton - Initial MQTTv5 implementation
+ *    Mark Hoffmann - no secrets in log output
  */
 package org.eclipse.paho.mqttv5.common.packet;
 
@@ -21,7 +22,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
-import java.util.Arrays;
 
 import org.eclipse.paho.mqttv5.common.MqttException;
 import org.eclipse.paho.mqttv5.common.MqttMessage;
@@ -330,7 +330,7 @@ public class MqttConnect extends MqttWireMessage {
 	public String toString() {
 		return "MqttConnect [properties=" + properties + ", willProperties=" + willProperties + ", info=" + info
 				+ ", clientId=" + clientId + ", reservedByte=" + reservedByte + ", cleanStart=" + cleanStart
-				+ ", willMessage=" + willMessage + ", userName=" + userName + ", password=" + Arrays.toString(password)
+				+ ", willMessage=" + willMessage + ", userName=" + userName + ", password=" + (password == null ? "null" : "<hidden>")
 				+ ", keepAliveInterval=" + keepAliveInterval + ", willDestination=" + willDestination + ", mqttVersion="
 				+ mqttVersion + "]";
 	}

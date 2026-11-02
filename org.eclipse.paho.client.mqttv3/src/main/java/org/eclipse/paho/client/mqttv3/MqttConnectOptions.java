@@ -14,7 +14,7 @@
  *    Dave Locke - initial API and implementation and/or initial documentation
  *    Ian Craggs - MQTT 3.1.1 support
  *    James Sutton - Automatic Reconnect & Offline Buffering
- *    Mark Hoffmann - automaticResubscribe option, maximum inbound packet size
+ *    Mark Hoffmann - automaticResubscribe option, maximum inbound packet size, no secrets in log output
  */
 package org.eclipse.paho.client.mqttv3;
 
@@ -769,10 +769,22 @@ public class MqttConnectOptions {
 		if (getSSLProperties() == null) {
 			p.put("SSLProperties", strNull);
 		} else {
-			p.put("SSLProperties", getSSLProperties());
+			p.put("SSLProperties", hidePasswords(getSSLProperties()));
 		}
 		p.put("SkipPortDuringHandshake", isSkipPortDuringHandshake());
 		return p;
+	}
+
+	/**
+	 * A copy of the SSL properties for diagnostic output, with the values of
+	 * all password properties hidden.
+	 */
+	private static Properties hidePasswords(Properties properties) {
+		Properties hidden = new Properties();
+		for (String key : properties.stringPropertyNames()) {
+			hidden.put(key, key.toLowerCase().contains("password") ? "<hidden>" : properties.getProperty(key));
+		}
+		return hidden;
 	}
 
 	/**
