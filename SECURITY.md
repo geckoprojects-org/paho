@@ -1,16 +1,18 @@
 # Security Policy
 
-This project follows the [Eclipse Vulnerability Reporting Policy](https://www.eclipse.org/security/policy.php).
-Vulnerabilities are tracked by the Eclipse security team, in cooperation with the project lead.
-Fixing vulnerabilities is taken care of by the project committers, with assistance and guidance of the security
-team.
+This repository is a Gecko projects build of the Eclipse Paho Java client, not an Eclipse release.
 
 ## Supported Versions
 
-Eclipse Paho provides security updates for the most recent version only.
+Security fixes are made for the most recent release only.
 
 ## Reporting a Vulnerability
 
-We recommend that in case of suspected vulnerabilities you do not create a GitHub issue, but instead contact the
-Eclipse Security Team directly sending an email to security@eclipse.org.
+Please do not open a public issue. Report suspected vulnerabilities privately through
+[GitHub security advisories](https://github.com/geckoprojects-org/paho/security/advisories/new)
+of this repository.
 
+If the vulnerability is in code taken over unchanged from upstream Eclipse Paho, it concerns the
+upstream project as well; it follows the
+[Eclipse Vulnerability Reporting Policy](https://www.eclipse.org/security/policy.php), contact
+security@eclipse.org. We forward reports to upstream in that case.

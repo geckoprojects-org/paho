@@ -4,45 +4,10 @@ The v5 client is build on the same foundations as the v3 client is, however it i
 
 ## Using the Paho Java MQTTv5 Client
 
-### Downloading
+### Downloading and building
 
-Eclipse hosts a Nexus repository for those who want to use Maven to manage their dependencies. The released libraries are also available in the Maven Central repository.
-
-Add the repository definition and the dependency definition shown below to your pom.xml.
-
-Replace %REPOURL% with either ``` https://repo.eclipse.org/content/repositories/paho-releases/ ``` for the official releases, or ``` https://repo.eclipse.org/content/repositories/paho-snapshots/  ``` for the nightly snapshots. Replace %VERSION% with the level required .
-
-The latest release version is ```1.2.5``` and the current snapshot version is ```1.2.6-SNAPSHOT```.
-
-```
-<project ...>
-<repositories>
-    <repository>
-        <id>Eclipse Paho Repo</id>
-        <url>%REPOURL%</url>
-    </repository>
-</repositories>
-...
-<dependencies>
-    <dependency>
-        <groupId>org.eclipse.paho</groupId>
-        <artifactId>org.eclipse.paho.mqttv5.client</artifactId>
-        <version>%VERSION%</version>
-    </dependency>
-</dependencies>
-</project>
-
-```
-
-If you find that there is functionality missing or bugs in the release version, you may want to try using the snapshot version to see if this helps before raising a feature request or an issue.
-
-### Building from source
-
-There are two active branches on the Paho Java git repository, ```master``` which is used to produce stable releases, and ```develop``` where active development is carried out. By default cloning the git repository will download the ```master``` branch, to build from ```develop``` make sure you switch to the remote branch: ``` git checkout -b develop remotes/origin/develop ```
-
-To then build the library run the following maven command: ```mvn package -DskipTests```
-
-This will build the client library without running the tests. The jars for the library, source and javadoc can be found in the ```org.eclipse.paho.mqttv5.client/target``` directory.
+This Gecko build is published as `org.geckoprojects.paho:org.eclipse.paho.mqttv5.client`; see the [README](README.md)
+for the Maven coordinates and for building and testing with `./gradlew`.
 
 ## Documentation
 Reference documentation is online at: [http://www.eclipse.org/paho/files/javadoc/index.html](http://www.eclipse.org/paho/files/javadoc/index.html)
@@ -51,7 +16,7 @@ Log and Debug in the Java Client: [https://wiki.eclipse.org/Paho/Log_and_Debug_i
 
 ## Getting Started
 
-The included code below is a very basic sample that connects to a server and publishes a message using the MqttClient asynchronous API. More extensive samples demonstrating the use of the Asynchronous API will be added in the ```org.eclipse.paho.sample.mqttv5app``` directory of the source soon.
+The included code below is a very basic sample that connects to a server and publishes a message using the MqttClient asynchronous API. More extensive samples are in the `org.eclipse.paho.sample.*` modules of [upstream Paho](https://github.com/eclipse-paho/paho.mqtt.java).
 
 
 ```
@@ -70,7 +35,7 @@ public class MqttPublishSample {
         String topic        = "MQTT Examples";
         String content      = "Message from MqttPublishSample";
         int qos             = 2;
-        String broker       = "tcp://iot.eclipse.org:1883";
+        String broker       = "tcp://localhost:1883";
         String clientId     = "JavaSample";
         MemoryPersistence persistence = new MemoryPersistence();
 
