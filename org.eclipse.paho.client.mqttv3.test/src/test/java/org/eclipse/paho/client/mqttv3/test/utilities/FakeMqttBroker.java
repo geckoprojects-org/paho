@@ -163,6 +163,24 @@ public class FakeMqttBroker {
 		}
 	}
 
+	/** Sends a PUBLISH with a binary payload and QoS 0 or 1 to every connected client. */
+	public void publish(String topic, byte[] payload, int qos) throws IOException {
+		for (Connection connection : connections) {
+			if (connection.connected) {
+				connection.sendPublish(topic, payload, qos);
+			}
+		}
+	}
+
+	/** Writes the bytes unchanged to every connected client, e.g. a forged packet header. */
+	public void sendRaw(byte[] bytes) throws IOException {
+		for (Connection connection : connections) {
+			if (connection.connected) {
+				connection.write(bytes);
+			}
+		}
+	}
+
 	public void close() {
 		closed = true;
 		try {
@@ -330,8 +348,12 @@ public class FakeMqttBroker {
 				packet.write(length > 0 ? digit | 0x80 : digit);
 			} while (length > 0);
 			packet.write(body);
+			write(packet.toByteArray());
+		}
+
+		void write(byte[] bytes) throws IOException {
 			synchronized (out) {
-				out.write(packet.toByteArray());
+				out.write(bytes);
 				out.flush();
 			}
 		}

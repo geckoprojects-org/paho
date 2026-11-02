@@ -18,6 +18,7 @@
  *    Ian Craggs - fix for NPE bug 470718
  *    James Sutton - Automatic Reconnect & Offline Buffering
  *    Jens Reimann - Fix issue #370
+ *    Mark Hoffmann - maximum inbound packet size
  */
 package org.eclipse.paho.client.mqttv3.internal;
 
@@ -125,6 +126,7 @@ public class ClientState {
 	private HighResolutionTimer highResolutionTimer;
 	
 	private int maxInflight = 0;	
+	private int maxInboundPacketSize = 0;
 	private int actualInFlight = 0;
 	private int inFlightPubRels = 0;
 	
@@ -179,6 +181,15 @@ public class ClientState {
         this.maxInflight = maxInflight;
         pendingMessages = new Vector(this.maxInflight);
     }
+	protected void setMaxInboundPacketSize(int maxInboundPacketSize) {
+		this.maxInboundPacketSize = maxInboundPacketSize;
+	}
+	/**
+	 * @return the maximum size of an inbound packet in bytes, 0 for no limit
+	 */
+	public int getMaxInboundPacketSize() {
+		return maxInboundPacketSize;
+	}
     protected void setKeepAliveSecs(long keepAliveSecs) {
 		this.keepAliveNanos = TimeUnit.SECONDS.toNanos(keepAliveSecs);
 	}

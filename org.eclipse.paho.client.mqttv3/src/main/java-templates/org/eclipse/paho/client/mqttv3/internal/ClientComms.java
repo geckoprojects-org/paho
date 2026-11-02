@@ -17,6 +17,7 @@
  *    James Sutton - checkForActivity Token (bug 473928)
  *    James Sutton - Automatic Reconnect & Offline Buffering.
  *    Mark Hoffmann - CONNACK timeout (issue #511)
+ *    Mark Hoffmann - maximum inbound packet size
  */
 package org.eclipse.paho.client.mqttv3.internal;
 
@@ -297,6 +298,7 @@ public class ClientComms {
                 this.clientState.setKeepAliveSecs(conOptions.getKeepAliveInterval());
                 this.clientState.setCleanSession(conOptions.isCleanSession());
                 this.clientState.setMaxInflight(conOptions.getMaxInflight());
+                this.clientState.setMaxInboundPacketSize(conOptions.getMaxInboundPacketSize());
 
 				tokenStore.open();
 				ConnectBG conbg = new ConnectBG(this, token, connect, executorService);

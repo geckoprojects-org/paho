@@ -19,6 +19,7 @@
  *    James Sutton - Automatic Reconnect & Offline Buffering
  *    Jens Reimann - Fix issue #370
  *    James Sutton - Mqttv5 - Outgoing Topic Aliases
+ *    Mark Hoffmann - maximum inbound packet size
  */
 package org.eclipse.paho.mqttv5.client.internal;
 
@@ -1580,11 +1581,11 @@ public class ClientState implements MqttState {
 	}
 	
 	public Long getOutgoingMaximumPacketSize() {
-		return this.mqttConnection.getIncomingMaximumPacketSize();
+		return this.mqttConnection.getOutgoingMaximumPacketSize();
 	}
 	
 	public Long getIncomingMaximumPacketSize() {
-		return this.mqttConnection.getOutgoingMaximumPacketSize();
+		return this.mqttConnection.getIncomingMaximumPacketSize();
 	}
 
 	/**

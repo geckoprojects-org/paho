@@ -12,6 +12,7 @@
  *
  * Contributors:
  *    Dave Locke - initial API and implementation and/or initial documentation
+ *    Mark Hoffmann - maximum inbound packet size
  */
 package org.eclipse.paho.client.mqttv3.internal.wire;
 
@@ -273,6 +274,10 @@ public abstract class MqttWireMessage {
 		int count = 0;
 
 		do {
+			if (count == 4) {
+				// MQTT 3.1.1 section 2.2.3: at most four bytes
+				throw new IOException("Malformed variable byte integer: more than 4 bytes");
+			}
 			digit = in.readByte();
 			count++;
 			msgLength += ((digit & 0x7F) * multiplier);

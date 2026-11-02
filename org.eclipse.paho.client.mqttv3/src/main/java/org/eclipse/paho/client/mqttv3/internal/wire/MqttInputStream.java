@@ -12,6 +12,7 @@
  *
  * Contributors:
  *    Dave Locke - initial API and implementation and/or initial documentation
+ *    Mark Hoffmann - maximum inbound packet size
  */
 package org.eclipse.paho.client.mqttv3.internal.wire;
 
@@ -102,6 +103,13 @@ public class MqttInputStream extends InputStream {
 				bais.write(first);
 				// bit silly, we decode it then encode it
 				bais.write(MqttWireMessage.encodeMBI(remLen));
+				int maxPacketSize = clientState.getMaxInboundPacketSize();
+				if (maxPacketSize > 0 && bais.size() + remLen > maxPacketSize) {
+					// checked before the packet buffer is allocated
+					// @TRACE 310=Incoming packet of {0} bytes exceeds the maximum inbound packet size of {1} bytes; closing the connection
+					log.warning(CLASS_NAME, methodName, "310", new Object[] { Integer.valueOf(bais.size() + remLen), Integer.valueOf(maxPacketSize) });
+					throw ExceptionHelper.createMqttException(MqttException.REASON_CODE_INCOMING_PACKET_TOO_LARGE);
+				}
 				packet = new byte[(int)(bais.size()+remLen)];
 				packetLen = 0;
 			}

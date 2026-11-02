@@ -14,7 +14,7 @@
  *    Dave Locke - initial API and implementation and/or initial documentation
  *    Ian Craggs - MQTT 3.1.1 support
  *    James Sutton - Automatic Reconnect & Offline Buffering
- *    Mark Hoffmann - automaticResubscribe option
+ *    Mark Hoffmann - automaticResubscribe option, maximum inbound packet size
  */
 package org.eclipse.paho.client.mqttv3;
 
@@ -43,6 +43,10 @@ public class MqttConnectOptions {
 	 */
 	public static final int MAX_INFLIGHT_DEFAULT = 10;
 	/**
+	 * The default maximum size of an inbound packet in bytes (1 MiB).
+	 */
+	public static final int MAX_INBOUND_PACKET_SIZE_DEFAULT = 1024 * 1024;
+	/**
 	 * The default clean session setting if one is not specified
 	 */
 	public static final boolean CLEAN_SESSION_DEFAULT = true;
@@ -61,6 +65,7 @@ public class MqttConnectOptions {
 
 	private int keepAliveInterval = KEEP_ALIVE_INTERVAL_DEFAULT;
 	private int maxInflight = MAX_INFLIGHT_DEFAULT;
+	private int maxInboundPacketSize = MAX_INBOUND_PACKET_SIZE_DEFAULT;
 	private String willDestination = null;
 	private MqttMessage willMessage = null;
 	private String userName;
@@ -300,6 +305,40 @@ public class MqttConnectOptions {
 			throw new IllegalArgumentException();
 		}
 		this.maxInflight = maxInflight;
+	}
+
+	/**
+	 * Returns the maximum size of an inbound packet in bytes.
+	 *
+	 * @see #setMaxInboundPacketSize(int)
+	 * @return the maximum inbound packet size, 0 for no limit
+	 */
+	public int getMaxInboundPacketSize() {
+		return maxInboundPacketSize;
+	}
+
+	/**
+	 * Sets the maximum size in bytes of a packet the client accepts from the
+	 * server, fixed header included. The client allocates the memory for a packet
+	 * as soon as it has read its length, so this limit is what keeps a server, or
+	 * anyone on an unprotected connection, from making it allocate up to 256 MiB
+	 * for a single packet. A larger packet closes the connection with
+	 * {@link MqttException#REASON_CODE_INCOMING_PACKET_TOO_LARGE}; MQTT 3.1.1 has
+	 * no way to tell the server about the limit, so a broker that keeps such a
+	 * message for the client sends it again after every reconnect.
+	 * <p>
+	 * The default value is {@link #MAX_INBOUND_PACKET_SIZE_DEFAULT} (1 MiB).
+	 * </p>
+	 *
+	 * @param maxInboundPacketSize
+	 *            the maximum packet size in bytes, 0 for no limit beyond the
+	 *            protocol's 256 MiB
+	 */
+	public void setMaxInboundPacketSize(int maxInboundPacketSize) {
+		if (maxInboundPacketSize < 0) {
+			throw new IllegalArgumentException();
+		}
+		this.maxInboundPacketSize = maxInboundPacketSize;
 	}
 
 	/**
@@ -719,6 +758,7 @@ public class MqttConnectOptions {
 		p.put("CleanSession", Boolean.valueOf(isCleanSession()));
 		p.put("ConTimeout", Integer.valueOf(getConnectionTimeout()));
 		p.put("KeepAliveInterval", Integer.valueOf(getKeepAliveInterval()));
+		p.put("MaxInboundPacketSize", Integer.valueOf(getMaxInboundPacketSize()));
 		p.put("UserName", (getUserName() == null) ? strNull : getUserName());
 		p.put("WillDestination", (getWillDestination() == null) ? strNull : getWillDestination());
 		if (getSocketFactory() == null) {

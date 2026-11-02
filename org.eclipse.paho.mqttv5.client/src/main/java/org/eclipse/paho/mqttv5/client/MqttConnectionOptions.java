@@ -15,7 +15,7 @@
  *    Ian Craggs - MQTT 3.1.1 support
  *    James Sutton - Automatic Reconnect & Offline Buffering
  *    James Sutton - MQTT v5
- *    Mark Hoffmann - automaticResubscribe option
+ *    Mark Hoffmann - automaticResubscribe option, maximum inbound packet size
  */
 package org.eclipse.paho.mqttv5.client;
 
@@ -56,6 +56,10 @@ import org.eclipse.paho.mqttv5.common.util.MqttTopicValidator;
 public class MqttConnectionOptions {
 
 	private static final String CLIENT_ID_PREFIX = "paho";
+	/**
+	 * The default Maximum Packet Size in bytes (1 MiB).
+	 */
+	public static final long MAXIMUM_PACKET_SIZE_DEFAULT = 1024 * 1024;
 
 	// Connection Behaviour Properties
 	private String[] serverURIs = null; // List of Servers to connect to in order
@@ -104,7 +108,7 @@ public class MqttConnectionOptions {
 	private Long sessionExpiryInterval = null; // The Session expiry Interval in seconds, null is the default of
 												// never.
 	private Integer receiveMaximum = null; // The Receive Maximum, null defaults to 65,535, cannot be 0.
-	private Long maximumPacketSize = null; // The Maximum packet size, null defaults to no limit.
+	private Long maximumPacketSize = MAXIMUM_PACKET_SIZE_DEFAULT; // The Maximum packet size, null for no limit.
 	private Integer topicAliasMaximum = null; // The Topic Alias Maximum, null defaults to 0.
 	private Boolean requestResponseInfo = null; // Request Response Information, null defaults to false.
 	private Boolean requestProblemInfo = null; // Request Problem Information, null defaults to true.
@@ -593,6 +597,7 @@ public class MqttConnectionOptions {
 
 	/**
 	 * Returns the Maximum Packet Size. If <code>null</code>, no limit is imposed.
+	 * The default is {@link #MAXIMUM_PACKET_SIZE_DEFAULT} (1 MiB).
 	 * 
 	 * @return the Maximum Packet Size in bytes.
 	 */
@@ -602,11 +607,16 @@ public class MqttConnectionOptions {
 
 	/**
 	 * Sets the Maximum Packet Size. This value represents the Maximum Packet Size
-	 * the client is willing to accept.
+	 * the client is willing to accept. It is sent to the server in CONNECT, so
+	 * that the server does not send larger packets (it discards them), and the
+	 * client checks every inbound packet against it before allocating memory for
+	 * it; a larger packet closes the connection with
+	 * {@link MqttClientException#REASON_CODE_INCOMING_PACKET_TOO_LARGE}.
 	 * 
 	 * <ul>
+	 * <li>The default is {@link #MAXIMUM_PACKET_SIZE_DEFAULT} (1 MiB).</li>
 	 * <li>If set to <code>null</code> then no limit is imposed beyond the
-	 * limitations of the protocol.</li>
+	 * limitations of the protocol (256 MiB).</li>
 	 * <li>If set, the minimum value for this property is 1.</li>
 	 * <li>The maximum value for this property is 2,684,354,656.</li>
 	 * </ul>

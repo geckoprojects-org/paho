@@ -14,6 +14,7 @@
  *    Dave Locke - initial API and implementation and/or initial documentation
  *    Ian Craggs - MQTT 3.1.1 support
  *    James Sutton - Automatic Reconnect & Offline Buffering
+ *    Mark Hoffmann - maximum inbound packet size
  */
 package org.eclipse.paho.client.mqttv3;
 
@@ -162,6 +163,14 @@ public class MqttException extends Exception {
 	 * manually. 
 	 */
 	public static final short REASON_CODE_DISCONNECTED_BUFFER_FULL	= 32203;
+
+	/**
+	 * The server sent a packet larger than the maximum inbound packet size of the
+	 * connect options; the connection is closed.
+	 *
+	 * @see MqttConnectOptions#setMaxInboundPacketSize(int)
+	 */
+	public static final short REASON_CODE_INCOMING_PACKET_TOO_LARGE	= 32204;
 
 	private int reasonCode;
 	private Throwable cause;

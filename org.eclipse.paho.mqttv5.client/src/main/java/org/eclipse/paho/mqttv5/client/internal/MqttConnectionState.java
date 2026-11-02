@@ -104,8 +104,8 @@ public class MqttConnectionState {
 
 
 	public void setIncomingMaximumPacketSize(Long incomingMaximumPacketSize) {
-                if (incomingMaximumPacketSize != null) 
-		    this.incomingMaximumPacketSize = incomingMaximumPacketSize;
+		// null is no limit; it also clears the limit of a previous connect
+		this.incomingMaximumPacketSize = incomingMaximumPacketSize;
 	}
 
 
