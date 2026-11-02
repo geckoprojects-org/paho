@@ -1,21 +1,6 @@
 -fixupmessages: \
 	"Bndtools: The .classpath";is:=ignore,\
-	"[Include Override]:";is:=ignore,\
+	"Include Override";is:=ignore,\
 	"jpms.jarname calculated module names from file name: ";is:=ignore,\
 	"No translation found for macro: fennec-baselining";is:=ignore,\
 	"No translation found for macro: maven-central";is:=ignore
-
-# Base repositories of the bndtools `workspace-minimal` template, which cnf/ext/fennec.bnd builds on.
--plugin.1.Local: \
-	aQute.bnd.deployer.repository.LocalIndexedRepo; \
-		name=Local; \
-		local=${workspace}/cnf/localrepo; \
-		pretty=true
-
--plugin.2.Release: \
-	aQute.bnd.deployer.repository.LocalIndexedRepo; \
-		name=Release; \
-		local=${workspace}/cnf/release; \
-		pretty=true
-
--releaserepo: Release

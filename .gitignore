@@ -89,3 +89,5 @@ org.eclipse.paho.*.test/paho*-*/
 org.eclipse.paho.*.test/test*/
 org.eclipse.paho.*.test/client-*/
 org.eclipse.paho.*.test/framework.log*
+# signed release written by bnd for the Central upload (cnf/ext/release.bnd)
+/dist/
