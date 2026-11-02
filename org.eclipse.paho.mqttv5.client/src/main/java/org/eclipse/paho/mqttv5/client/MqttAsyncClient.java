@@ -12,6 +12,7 @@
  *
  * Contributors:
  *    James Sutton - initial API and implementation and/or initial documentation
+ *    Mark Hoffmann - automatic reconnect fixes
  */
 
 package org.eclipse.paho.mqttv5.client;
@@ -235,10 +236,10 @@ public class MqttAsyncClient implements MqttClientInterface, IMqttAsyncClient {
 	private MqttConnectionOptions connOpts;
 	private Object userContext;
 	private Timer reconnectTimer; // Automatic reconnect timer
-	private static int reconnectDelay = 1000; // Reconnect delay, starts at 1
+	private int reconnectDelay = 1000; // Reconnect delay, starts at 1
 												// second
 	private boolean reconnecting = false;
-	private static final Object clientLock = new Object(); // Simple lock
+	private final Object clientLock = new Object(); // Simple lock
 
 	// Variables that exist within the life of an MQTT session
 	private MqttSessionState mqttSession = new MqttSessionState();

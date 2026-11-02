@@ -17,6 +17,7 @@
  *    Ian Craggs - ack control (bug 472172)
  *    James Sutton - Bug 459142 - WebSocket support for the Java client.
  *    James Sutton - Automatic Reconnect & Offline Buffering.
+ *    Mark Hoffmann - automatic reconnect fixes
  */
 
 package org.eclipse.paho.client.mqttv3;
@@ -110,10 +111,10 @@ public class MqttAsyncClient implements IMqttAsyncClient {
 	private MqttConnectOptions connOpts;
 	private Object userContext;
 	private Timer reconnectTimer; // Automatic reconnect timer
-	private static int reconnectDelay = 1000; // Reconnect delay, starts at 1
+	private int reconnectDelay = 1000; // Reconnect delay, starts at 1
 												// second
 	private boolean reconnecting = false;
-	private static final Object clientLock = new Object(); // Simple lock
+	private final Object clientLock = new Object(); // Simple lock
 
 	private ScheduledExecutorService executorService;
 
