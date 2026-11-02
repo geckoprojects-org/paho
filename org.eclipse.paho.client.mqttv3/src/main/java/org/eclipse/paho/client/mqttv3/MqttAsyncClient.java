@@ -17,13 +17,15 @@
  *    Ian Craggs - ack control (bug 472172)
  *    James Sutton - Bug 459142 - WebSocket support for the Java client.
  *    James Sutton - Automatic Reconnect & Offline Buffering.
- *    Mark Hoffmann - automatic reconnect fixes, warning for credentials without TLS
+ *    Mark Hoffmann - automatic reconnect fixes, warning for credentials without TLS,
+ *                    random client ids
  */
 
 package org.eclipse.paho.client.mqttv3;
 
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.security.SecureRandom;
 import java.util.Hashtable;
 import java.util.ArrayList;
 import java.util.List;
@@ -1360,8 +1362,10 @@ public class MqttAsyncClient implements IMqttAsyncClient {
 	}
 
 	/**
-	 * Returns a randomly generated client identifier based on the the fixed
-	 * prefix (paho) and the system time.
+	 * Returns a randomly generated client identifier: the fixed prefix (paho)
+	 * and 64 random bits from a {@link SecureRandom} as 16 hex digits, 20
+	 * characters in total (MQTT 3.1 allows 23). The client identifier
+	 * identifies the session, so it must not be guessable.
 	 * <p>
 	 * When cleanSession is set to false, an application must ensure it uses the
 	 * same client identifier when it reconnects to the server to resume state
@@ -1372,10 +1376,22 @@ public class MqttAsyncClient implements IMqttAsyncClient {
 	 * @see MqttConnectOptions#setCleanSession(boolean)
 	 */
 	public static String generateClientId() {
-		// length of nanoTime = 15, so total length = 19 < 65535(defined in
-		// spec)
-		return CLIENT_ID_PREFIX + System.nanoTime();
+		byte[] random = new byte[8];
+		ClientIdRandom.INSTANCE.nextBytes(random);
+		StringBuilder clientId = new StringBuilder(CLIENT_ID_PREFIX.length() + 2 * random.length);
+		clientId.append(CLIENT_ID_PREFIX);
+		for (byte b : random) {
+			clientId.append(Character.forDigit((b >> 4) & 0xF, 16)).append(Character.forDigit(b & 0xF, 16));
+		}
+		return clientId.toString();
+	}
 
+	/**
+	 * Holds the random source of {@link #generateClientId()}; created on first
+	 * use, as seeding can take time on a device with little entropy.
+	 */
+	private static final class ClientIdRandom {
+		static final SecureRandom INSTANCE = new SecureRandom();
 	}
 
 	/*
