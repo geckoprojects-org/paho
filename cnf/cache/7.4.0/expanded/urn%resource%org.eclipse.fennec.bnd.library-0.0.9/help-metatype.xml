@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<metatype:MetaData xmlns:metatype="http://www.osgi.org/xmlns/metatype/v1.2.0" localization="OSGI-INF/l10n/org.eclipse.fennec.bnd.workspace.base">
+  <OCD id="org.eclipse.fennec.bnd.workspace.base" name="Eclipse Fennec Workspace Template" description="Eclipse Fennec Workspace with configuration">
+    <AD id="orga-symbolic-name" type="String" name="Project Symbolic Name" description="The Project Symbolic Name" default="eclipse-fennec"/>
+    <AD id="project-symbolic-name" type="String" name="Project Symbolic Name" description="The Project Symbolic Name" default="foo"/>
+    <AD id="project-group-id" type="String" name="Project Maven GroupId" description="The Project Maven Group Id (Must start with org.eclipse.fennec)" default="org.eclipse.fennec.foo"/>
+  </OCD>
+</metatype:MetaData>

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="org.eclipse.paho.mqttv5.common.packet.MqttPropertiesTest" tests="9" skipped="0" failures="0" errors="0" timestamp="2026-11-02T18:31:10.687Z" hostname="mark-dell" time="0.002">
+  <properties/>
+  <testcase name="testVariableByteIntPropertyInvalidNegative" classname="org.eclipse.paho.mqttv5.common.packet.MqttPropertiesTest" time="0.001"/>
+  <testcase name="testTwoByteIntPropertyValid" classname="org.eclipse.paho.mqttv5.common.packet.MqttPropertiesTest" time="0.0"/>
+  <testcase name="testFourByteIntPropertyValid" classname="org.eclipse.paho.mqttv5.common.packet.MqttPropertiesTest" time="0.0"/>
+  <testcase name="testTwoByteIntPropertyInvalidNegative" classname="org.eclipse.paho.mqttv5.common.packet.MqttPropertiesTest" time="0.0"/>
+  <testcase name="testVariableByteIntPropertyInvalidMax" classname="org.eclipse.paho.mqttv5.common.packet.MqttPropertiesTest" time="0.0"/>
+  <testcase name="testFourByteIntPropertyInvalidNegative" classname="org.eclipse.paho.mqttv5.common.packet.MqttPropertiesTest" time="0.0"/>
+  <testcase name="testFourByteIntPropertyInvalidMax" classname="org.eclipse.paho.mqttv5.common.packet.MqttPropertiesTest" time="0.0"/>
+  <testcase name="testVariableByteIntPropertyValid" classname="org.eclipse.paho.mqttv5.common.packet.MqttPropertiesTest" time="0.0"/>
+  <testcase name="testTwoByteIntPropertyInvalidMax" classname="org.eclipse.paho.mqttv5.common.packet.MqttPropertiesTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="org.eclipse.paho.client.mqttv3.test.internal.MqttPersistentDataTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2026-11-02T18:30:48.442Z" hostname="mark-dell" time="0.006">
+  <properties/>
+  <testcase name="testConstructWithNullPayload" classname="org.eclipse.paho.client.mqttv3.test.internal.MqttPersistentDataTest" time="0.004"/>
+  <system-out><![CDATA[20261102 193048.443 
+20261102 193048.443 *************************************************************
+20261102 193048.444 * MqttPersistentDataTest.setUpBeforeClass
+20261102 193048.444 *************************************************************
+20261102 193048.448 
+20261102 193048.448 *************************************************************
+20261102 193048.448 * MqttPersistentDataTest.tearDownAfterClass
+20261102 193048.449 *************************************************************
+]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

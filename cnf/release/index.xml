@@ -1,0 +1,337 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<repository xmlns="http://www.osgi.org/xmlns/repository/v1.0.0" name="Release" increment="1793642399765">
+  <resource>
+    <capability namespace="osgi.identity">
+      <attribute name="license" value="EPL-2.0;description=&quot;Eclipse Public License 2.0&quot;;link=&quot;https://www.eclipse.org/legal/epl-2.0/&quot;,BSD-3-Clause;description=&quot;Eclipse Distribution License 1.0&quot;;link=&quot;https://www.eclipse.org/org/documents/edl-v10.php&quot;"/>
+      <attribute name="copyright" value="IBM Corp. and others (Eclipse Paho); Gecko build by Data In Motion Consulting GmbH"/>
+      <attribute name="osgi.identity" value="org.eclipse.paho.mqttv5.client"/>
+      <attribute name="documentation" value="https://github.com/geckoprojects-org/paho"/>
+      <attribute name="description" value="Eclipse Paho Java client for MQTT 5, built from https://github.com/geckoprojects-org/paho with automatic reconnect fixes. Based on Eclipse Paho; not an official Eclipse release."/>
+      <attribute name="type" value="osgi.bundle"/>
+      <attribute name="version" value="1.3.0.202611021759-SNAPSHOT" type="Version"/>
+    </capability>
+    <capability namespace="osgi.wiring.package">
+      <directive name="uses" value="javax.net,javax.net.ssl,org.eclipse.paho.mqttv5.client.util,org.eclipse.paho.mqttv5.common,org.eclipse.paho.mqttv5.common.packet"/>
+      <attribute name="bundle-symbolic-name" value="org.eclipse.paho.mqttv5.client"/>
+      <attribute name="bundle-version" value="1.3.0.202611021759-SNAPSHOT" type="Version"/>
+      <attribute name="osgi.wiring.package" value="org.eclipse.paho.mqttv5.client"/>
+      <attribute name="version" value="1.3.0" type="Version"/>
+      <attribute name="bnd.hashes" value="-1275931128,-1653396689,-1956836953,-1728068854,1484020643,-1544041838,-872097766,-464122568,229959768,-1253088498,-553369876,-1040216722,-12744611,-107589160,-707792548,-2146815872,2037158787,-482232407,1864307759,-1982521120,1333444042,-1738951952,-1571142916,-1533267713,1797505,-1676337311,-780633941,907214101,907219019,1303542479,-363559369,-1434766516" type="List&lt;Long&gt;"/>
+    </capability>
+    <capability namespace="osgi.wiring.package">
+      <attribute name="bundle-symbolic-name" value="org.eclipse.paho.mqttv5.client"/>
+      <attribute name="bundle-version" value="1.3.0.202611021759-SNAPSHOT" type="Version"/>
+      <attribute name="osgi.wiring.package" value="org.eclipse.paho.mqttv5.client.logging"/>
+      <attribute name="version" value="1.3.0" type="Version"/>
+      <attribute name="bnd.hashes" value="-1157127908,-2013470288,971415866,-1808473896" type="List&lt;Long&gt;"/>
+    </capability>
+    <capability namespace="osgi.wiring.package">
+      <directive name="uses" value="org.eclipse.paho.mqttv5.client,org.eclipse.paho.mqttv5.common"/>
+      <attribute name="bundle-symbolic-name" value="org.eclipse.paho.mqttv5.client"/>
+      <attribute name="bundle-version" value="1.3.0.202611021759-SNAPSHOT" type="Version"/>
+      <attribute name="osgi.wiring.package" value="org.eclipse.paho.mqttv5.client.persist"/>
+      <attribute name="version" value="1.3.0" type="Version"/>
+      <attribute name="bnd.hashes" value="1658516158,-1411825818,1943049203,1242099934" type="List&lt;Long&gt;"/>
+    </capability>
+    <capability namespace="osgi.wiring.package">
+      <directive name="uses" value="org.eclipse.paho.mqttv5.client,org.eclipse.paho.mqttv5.common"/>
+      <attribute name="bundle-symbolic-name" value="org.eclipse.paho.mqttv5.client"/>
+      <attribute name="bundle-version" value="1.3.0.202611021759-SNAPSHOT" type="Version"/>
+      <attribute name="osgi.wiring.package" value="org.eclipse.paho.mqttv5.client.spi"/>
+      <attribute name="version" value="1.3.0" type="Version"/>
+      <attribute name="bnd.hashes" value="258987408" type="List&lt;Long&gt;"/>
+    </capability>
+    <capability namespace="osgi.wiring.package">
+      <attribute name="bundle-symbolic-name" value="org.eclipse.paho.mqttv5.client"/>
+      <attribute name="bundle-version" value="1.3.0.202611021759-SNAPSHOT" type="Version"/>
+      <attribute name="osgi.wiring.package" value="org.eclipse.paho.mqttv5.client.util"/>
+      <attribute name="version" value="1.3.0" type="Version"/>
+      <attribute name="bnd.hashes" value="65906227" type="List&lt;Long&gt;"/>
+    </capability>
+    <capability namespace="osgi.wiring.package">
+      <directive name="uses" value="org.eclipse.paho.mqttv5.common.packet"/>
+      <attribute name="bundle-symbolic-name" value="org.eclipse.paho.mqttv5.client"/>
+      <attribute name="bundle-version" value="1.3.0.202611021759-SNAPSHOT" type="Version"/>
+      <attribute name="osgi.wiring.package" value="org.eclipse.paho.mqttv5.common"/>
+      <attribute name="version" value="1.3.0" type="Version"/>
+      <attribute name="bnd.hashes" value="1232194749,461186411,2053303331,1611711306,-361967148,-2014963189,213491329,1949907841" type="List&lt;Long&gt;"/>
+    </capability>
+    <capability namespace="osgi.wiring.package">
+      <directive name="uses" value="org.eclipse.paho.mqttv5.common,org.eclipse.paho.mqttv5.common.packet.util"/>
+      <attribute name="bundle-symbolic-name" value="org.eclipse.paho.mqttv5.client"/>
+      <attribute name="bundle-version" value="1.3.0.202611021759-SNAPSHOT" type="Version"/>
+      <attribute name="osgi.wiring.package" value="org.eclipse.paho.mqttv5.common.packet"/>
+      <attribute name="version" value="1.3.0" type="Version"/>
+      <attribute name="bnd.hashes" value="-1330916699,1691272972,2049695193,2049729798,-1393817589,-1038440704,-1065399101,-359855592,530374120,-738271290,1800067991,-2050412368,861797320,-2050395977,-2050395968,863013163,-385872126,-232155743,-1964524915,-505597338,-315086490,-806311699,-1274104354,-1596750112" type="List&lt;Long&gt;"/>
+    </capability>
+    <capability namespace="osgi.wiring.package">
+      <attribute name="bundle-symbolic-name" value="org.eclipse.paho.mqttv5.client"/>
+      <attribute name="bundle-version" value="1.3.0.202611021759-SNAPSHOT" type="Version"/>
+      <attribute name="osgi.wiring.package" value="org.eclipse.paho.mqttv5.common.packet.util"/>
+      <attribute name="version" value="1.3.0" type="Version"/>
+      <attribute name="bnd.hashes" value="444552535,1613475762,181892826" type="List&lt;Long&gt;"/>
+    </capability>
+    <capability namespace="osgi.wiring.package">
+      <attribute name="bundle-symbolic-name" value="org.eclipse.paho.mqttv5.client"/>
+      <attribute name="bundle-version" value="1.3.0.202611021759-SNAPSHOT" type="Version"/>
+      <attribute name="osgi.wiring.package" value="org.eclipse.paho.mqttv5.common.util"/>
+      <attribute name="version" value="1.3.0" type="Version"/>
+      <attribute name="bnd.hashes" value="1294942023,-217105822" type="List&lt;Long&gt;"/>
+    </capability>
+    <capability namespace="osgi.wiring.bundle">
+      <attribute name="bundle-version" value="1.3.0.202611021759-SNAPSHOT" type="Version"/>
+      <attribute name="osgi.wiring.bundle" value="org.eclipse.paho.mqttv5.client"/>
+    </capability>
+    <capability namespace="osgi.wiring.host">
+      <attribute name="bundle-version" value="1.3.0.202611021759-SNAPSHOT" type="Version"/>
+      <attribute name="osgi.wiring.host" value="org.eclipse.paho.mqttv5.client"/>
+    </capability>
+    <capability namespace="osgi.content">
+      <attribute name="size" value="529894" type="Long"/>
+      <attribute name="mime" value="application/vnd.osgi.bundle"/>
+      <attribute name="url" value="org.eclipse.paho.mqttv5.client/org.eclipse.paho.mqttv5.client-1.3.0.jar"/>
+      <attribute name="osgi.content" value="DB30F2B768DDE57E8B805000E735CF77EB0C8F74892471F578644E563871C463"/>
+    </capability>
+    <requirement namespace="osgi.wiring.package">
+      <directive name="filter" value="(osgi.wiring.package=javax.net)"/>
+      <directive name="resolution" value="optional"/>
+      <attribute name="osgi.wiring.package" value="javax.net"/>
+    </requirement>
+    <requirement namespace="osgi.wiring.package">
+      <directive name="filter" value="(osgi.wiring.package=javax.net.ssl)"/>
+      <directive name="resolution" value="optional"/>
+      <attribute name="osgi.wiring.package" value="javax.net.ssl"/>
+    </requirement>
+    <requirement namespace="osgi.wiring.package">
+      <directive name="filter" value="(osgi.wiring.package=java.io)"/>
+      <attribute name="osgi.wiring.package" value="java.io"/>
+    </requirement>
+    <requirement namespace="osgi.wiring.package">
+      <directive name="filter" value="(osgi.wiring.package=java.lang)"/>
+      <attribute name="osgi.wiring.package" value="java.lang"/>
+    </requirement>
+    <requirement namespace="osgi.wiring.package">
+      <directive name="filter" value="(osgi.wiring.package=java.lang.invoke)"/>
+      <attribute name="osgi.wiring.package" value="java.lang.invoke"/>
+    </requirement>
+    <requirement namespace="osgi.wiring.package">
+      <directive name="filter" value="(osgi.wiring.package=java.lang.reflect)"/>
+      <attribute name="osgi.wiring.package" value="java.lang.reflect"/>
+    </requirement>
+    <requirement namespace="osgi.wiring.package">
+      <directive name="filter" value="(osgi.wiring.package=java.net)"/>
+      <attribute name="osgi.wiring.package" value="java.net"/>
+    </requirement>
+    <requirement namespace="osgi.wiring.package">
+      <directive name="filter" value="(osgi.wiring.package=java.nio)"/>
+      <attribute name="osgi.wiring.package" value="java.nio"/>
+    </requirement>
+    <requirement namespace="osgi.wiring.package">
+      <directive name="filter" value="(osgi.wiring.package=java.nio.charset)"/>
+      <attribute name="osgi.wiring.package" value="java.nio.charset"/>
+    </requirement>
+    <requirement namespace="osgi.wiring.package">
+      <directive name="filter" value="(osgi.wiring.package=java.security)"/>
+      <attribute name="osgi.wiring.package" value="java.security"/>
+    </requirement>
+    <requirement namespace="osgi.wiring.package">
+      <directive name="filter" value="(osgi.wiring.package=java.security.cert)"/>
+      <attribute name="osgi.wiring.package" value="java.security.cert"/>
+    </requirement>
+    <requirement namespace="osgi.wiring.package">
+      <directive name="filter" value="(osgi.wiring.package=java.text)"/>
+      <attribute name="osgi.wiring.package" value="java.text"/>
+    </requirement>
+    <requirement namespace="osgi.wiring.package">
+      <directive name="filter" value="(osgi.wiring.package=java.util)"/>
+      <attribute name="osgi.wiring.package" value="java.util"/>
+    </requirement>
+    <requirement namespace="osgi.wiring.package">
+      <directive name="filter" value="(osgi.wiring.package=java.util.concurrent)"/>
+      <attribute name="osgi.wiring.package" value="java.util.concurrent"/>
+    </requirement>
+    <requirement namespace="osgi.wiring.package">
+      <directive name="filter" value="(osgi.wiring.package=java.util.concurrent.atomic)"/>
+      <attribute name="osgi.wiring.package" value="java.util.concurrent.atomic"/>
+    </requirement>
+    <requirement namespace="osgi.wiring.package">
+      <directive name="filter" value="(osgi.wiring.package=java.util.function)"/>
+      <attribute name="osgi.wiring.package" value="java.util.function"/>
+    </requirement>
+    <requirement namespace="osgi.wiring.package">
+      <directive name="filter" value="(osgi.wiring.package=java.util.logging)"/>
+      <attribute name="osgi.wiring.package" value="java.util.logging"/>
+    </requirement>
+    <requirement namespace="osgi.wiring.package">
+      <directive name="filter" value="(osgi.wiring.package=java.util.prefs)"/>
+      <attribute name="osgi.wiring.package" value="java.util.prefs"/>
+    </requirement>
+    <requirement namespace="osgi.wiring.package">
+      <directive name="filter" value="(osgi.wiring.package=java.util.regex)"/>
+      <attribute name="osgi.wiring.package" value="java.util.regex"/>
+    </requirement>
+    <requirement namespace="osgi.wiring.package">
+      <directive name="filter" value="(&amp;(osgi.wiring.package=org.eclipse.paho.mqttv5.client.logging)(version&gt;=1.3.0)(!(version&gt;=2.0.0)))"/>
+      <attribute name="osgi.wiring.package" value="org.eclipse.paho.mqttv5.client.logging"/>
+    </requirement>
+    <requirement namespace="osgi.wiring.package">
+      <directive name="filter" value="(&amp;(osgi.wiring.package=org.eclipse.paho.mqttv5.common)(version&gt;=1.3.0)(!(version&gt;=2.0.0)))"/>
+      <attribute name="osgi.wiring.package" value="org.eclipse.paho.mqttv5.common"/>
+    </requirement>
+    <requirement namespace="osgi.wiring.package">
+      <directive name="filter" value="(&amp;(osgi.wiring.package=org.eclipse.paho.mqttv5.common.packet)(version&gt;=1.3.0)(!(version&gt;=2.0.0)))"/>
+      <attribute name="osgi.wiring.package" value="org.eclipse.paho.mqttv5.common.packet"/>
+    </requirement>
+    <requirement namespace="osgi.wiring.package">
+      <directive name="filter" value="(&amp;(osgi.wiring.package=org.eclipse.paho.mqttv5.common.packet.util)(version&gt;=1.3.0)(!(version&gt;=2.0.0)))"/>
+      <attribute name="osgi.wiring.package" value="org.eclipse.paho.mqttv5.common.packet.util"/>
+    </requirement>
+    <requirement namespace="osgi.wiring.package">
+      <directive name="filter" value="(&amp;(osgi.wiring.package=org.eclipse.paho.mqttv5.common.util)(version&gt;=1.3.0)(!(version&gt;=2.0.0)))"/>
+      <attribute name="osgi.wiring.package" value="org.eclipse.paho.mqttv5.common.util"/>
+    </requirement>
+    <requirement namespace="osgi.ee">
+      <directive name="filter" value="(&amp;(osgi.ee=JavaSE)(version=1.8))"/>
+    </requirement>
+  </resource>
+  <resource>
+    <capability namespace="osgi.identity">
+      <attribute name="license" value="EPL-2.0;description=&quot;Eclipse Public License 2.0&quot;;link=&quot;https://www.eclipse.org/legal/epl-2.0/&quot;,BSD-3-Clause;description=&quot;Eclipse Distribution License 1.0&quot;;link=&quot;https://www.eclipse.org/org/documents/edl-v10.php&quot;"/>
+      <attribute name="copyright" value="IBM Corp. and others (Eclipse Paho); Gecko build by Data In Motion Consulting GmbH"/>
+      <attribute name="osgi.identity" value="org.eclipse.paho.client.mqttv3"/>
+      <attribute name="documentation" value="https://github.com/geckoprojects-org/paho"/>
+      <attribute name="description" value="Eclipse Paho Java client for MQTT 3.1 and 3.1.1, built from https://github.com/geckoprojects-org/paho with automatic reconnect fixes. Based on Eclipse Paho; not an official Eclipse release."/>
+      <attribute name="type" value="osgi.bundle"/>
+      <attribute name="version" value="1.3.0.202611021759-SNAPSHOT" type="Version"/>
+    </capability>
+    <capability namespace="osgi.wiring.package">
+      <directive name="uses" value="javax.net,javax.net.ssl,org.eclipse.paho.client.mqttv3.util"/>
+      <attribute name="bundle-symbolic-name" value="org.eclipse.paho.client.mqttv3"/>
+      <attribute name="bundle-version" value="1.3.0.202611021759-SNAPSHOT" type="Version"/>
+      <attribute name="osgi.wiring.package" value="org.eclipse.paho.client.mqttv3"/>
+      <attribute name="version" value="1.3.0" type="Version"/>
+      <attribute name="bnd.hashes" value="-1275931128,1484020643,1737846135,-872097766,-464122568,229959768,-1253088498,-553369876,-12744611,-107589160,-707792548,-2146815872,2037158787,-482232407,1981403138,1864307759,-1738951952,1527654072,1797505,461186411,2053303331,1611711306,-361967148,-780633941,-2014963189,907214101,907219019,1303542479,230541031,-363559369,-1434766516" type="List&lt;Long&gt;"/>
+    </capability>
+    <capability namespace="osgi.wiring.package">
+      <attribute name="bundle-symbolic-name" value="org.eclipse.paho.client.mqttv3"/>
+      <attribute name="bundle-version" value="1.3.0.202611021759-SNAPSHOT" type="Version"/>
+      <attribute name="osgi.wiring.package" value="org.eclipse.paho.client.mqttv3.logging"/>
+      <attribute name="version" value="1.3.0" type="Version"/>
+      <attribute name="bnd.hashes" value="-1157127908,-2013470288,971415866,-1808473896" type="List&lt;Long&gt;"/>
+    </capability>
+    <capability namespace="osgi.wiring.package">
+      <directive name="uses" value="org.eclipse.paho.client.mqttv3"/>
+      <attribute name="bundle-symbolic-name" value="org.eclipse.paho.client.mqttv3"/>
+      <attribute name="bundle-version" value="1.3.0.202611021759-SNAPSHOT" type="Version"/>
+      <attribute name="osgi.wiring.package" value="org.eclipse.paho.client.mqttv3.persist"/>
+      <attribute name="version" value="1.3.0" type="Version"/>
+      <attribute name="bnd.hashes" value="1658516158,-1411825818,-329683593,935422050" type="List&lt;Long&gt;"/>
+    </capability>
+    <capability namespace="osgi.wiring.package">
+      <directive name="uses" value="org.eclipse.paho.client.mqttv3"/>
+      <attribute name="bundle-symbolic-name" value="org.eclipse.paho.client.mqttv3"/>
+      <attribute name="bundle-version" value="1.3.0.202611021759-SNAPSHOT" type="Version"/>
+      <attribute name="osgi.wiring.package" value="org.eclipse.paho.client.mqttv3.spi"/>
+      <attribute name="version" value="1.3.0" type="Version"/>
+      <attribute name="bnd.hashes" value="258987408" type="List&lt;Long&gt;"/>
+    </capability>
+    <capability namespace="osgi.wiring.package">
+      <attribute name="bundle-symbolic-name" value="org.eclipse.paho.client.mqttv3"/>
+      <attribute name="bundle-version" value="1.3.0.202611021759-SNAPSHOT" type="Version"/>
+      <attribute name="osgi.wiring.package" value="org.eclipse.paho.client.mqttv3.util"/>
+      <attribute name="version" value="1.3.0" type="Version"/>
+      <attribute name="bnd.hashes" value="65906227,-217105822" type="List&lt;Long&gt;"/>
+    </capability>
+    <capability namespace="osgi.wiring.bundle">
+      <attribute name="bundle-version" value="1.3.0.202611021759-SNAPSHOT" type="Version"/>
+      <attribute name="osgi.wiring.bundle" value="org.eclipse.paho.client.mqttv3"/>
+    </capability>
+    <capability namespace="osgi.wiring.host">
+      <attribute name="bundle-version" value="1.3.0.202611021759-SNAPSHOT" type="Version"/>
+      <attribute name="osgi.wiring.host" value="org.eclipse.paho.client.mqttv3"/>
+    </capability>
+    <capability namespace="osgi.content">
+      <attribute name="size" value="454972" type="Long"/>
+      <attribute name="mime" value="application/vnd.osgi.bundle"/>
+      <attribute name="url" value="org.eclipse.paho.client.mqttv3/org.eclipse.paho.client.mqttv3-1.3.0.jar"/>
+      <attribute name="osgi.content" value="1490E8831F5F87A7413F53606449E275B43C2C80D73B60D1B15456075A92B331"/>
+    </capability>
+    <requirement namespace="osgi.wiring.package">
+      <directive name="filter" value="(osgi.wiring.package=javax.net)"/>
+      <directive name="resolution" value="optional"/>
+      <attribute name="osgi.wiring.package" value="javax.net"/>
+    </requirement>
+    <requirement namespace="osgi.wiring.package">
+      <directive name="filter" value="(osgi.wiring.package=javax.net.ssl)"/>
+      <directive name="resolution" value="optional"/>
+      <attribute name="osgi.wiring.package" value="javax.net.ssl"/>
+    </requirement>
+    <requirement namespace="osgi.wiring.package">
+      <directive name="filter" value="(osgi.wiring.package=java.io)"/>
+      <attribute name="osgi.wiring.package" value="java.io"/>
+    </requirement>
+    <requirement namespace="osgi.wiring.package">
+      <directive name="filter" value="(osgi.wiring.package=java.lang)"/>
+      <attribute name="osgi.wiring.package" value="java.lang"/>
+    </requirement>
+    <requirement namespace="osgi.wiring.package">
+      <directive name="filter" value="(osgi.wiring.package=java.lang.reflect)"/>
+      <attribute name="osgi.wiring.package" value="java.lang.reflect"/>
+    </requirement>
+    <requirement namespace="osgi.wiring.package">
+      <directive name="filter" value="(osgi.wiring.package=java.net)"/>
+      <attribute name="osgi.wiring.package" value="java.net"/>
+    </requirement>
+    <requirement namespace="osgi.wiring.package">
+      <directive name="filter" value="(osgi.wiring.package=java.nio)"/>
+      <attribute name="osgi.wiring.package" value="java.nio"/>
+    </requirement>
+    <requirement namespace="osgi.wiring.package">
+      <directive name="filter" value="(osgi.wiring.package=java.nio.charset)"/>
+      <attribute name="osgi.wiring.package" value="java.nio.charset"/>
+    </requirement>
+    <requirement namespace="osgi.wiring.package">
+      <directive name="filter" value="(osgi.wiring.package=java.security)"/>
+      <attribute name="osgi.wiring.package" value="java.security"/>
+    </requirement>
+    <requirement namespace="osgi.wiring.package">
+      <directive name="filter" value="(osgi.wiring.package=java.security.cert)"/>
+      <attribute name="osgi.wiring.package" value="java.security.cert"/>
+    </requirement>
+    <requirement namespace="osgi.wiring.package">
+      <directive name="filter" value="(osgi.wiring.package=java.text)"/>
+      <attribute name="osgi.wiring.package" value="java.text"/>
+    </requirement>
+    <requirement namespace="osgi.wiring.package">
+      <directive name="filter" value="(osgi.wiring.package=java.util)"/>
+      <attribute name="osgi.wiring.package" value="java.util"/>
+    </requirement>
+    <requirement namespace="osgi.wiring.package">
+      <directive name="filter" value="(osgi.wiring.package=java.util.concurrent)"/>
+      <attribute name="osgi.wiring.package" value="java.util.concurrent"/>
+    </requirement>
+    <requirement namespace="osgi.wiring.package">
+      <directive name="filter" value="(osgi.wiring.package=java.util.concurrent.atomic)"/>
+      <attribute name="osgi.wiring.package" value="java.util.concurrent.atomic"/>
+    </requirement>
+    <requirement namespace="osgi.wiring.package">
+      <directive name="filter" value="(osgi.wiring.package=java.util.logging)"/>
+      <attribute name="osgi.wiring.package" value="java.util.logging"/>
+    </requirement>
+    <requirement namespace="osgi.wiring.package">
+      <directive name="filter" value="(osgi.wiring.package=java.util.prefs)"/>
+      <attribute name="osgi.wiring.package" value="java.util.prefs"/>
+    </requirement>
+    <requirement namespace="osgi.wiring.package">
+      <directive name="filter" value="(osgi.wiring.package=java.util.regex)"/>
+      <attribute name="osgi.wiring.package" value="java.util.regex"/>
+    </requirement>
+    <requirement namespace="osgi.wiring.package">
+      <directive name="filter" value="(&amp;(osgi.wiring.package=org.eclipse.paho.client.mqttv3.logging)(version&gt;=1.3.0)(!(version&gt;=2.0.0)))"/>
+      <attribute name="osgi.wiring.package" value="org.eclipse.paho.client.mqttv3.logging"/>
+    </requirement>
+    <requirement namespace="osgi.ee">
+      <directive name="filter" value="(&amp;(osgi.ee=JavaSE)(version=1.8))"/>
+    </requirement>
+  </resource>
+</repository>

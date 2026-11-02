@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="org.eclipse.paho.client.mqttv3.test.automaticReconnect.ResubscribeTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-11-02T18:30:44.280Z" hostname="mark-dell" time="4.162">
+  <properties/>
+  <testcase name="testNoResubscribeWhenDisabled" classname="org.eclipse.paho.client.mqttv3.test.automaticReconnect.ResubscribeTest" time="1.722"/>
+  <testcase name="testSubscriptionsRestoredAfterReconnectWithoutSession" classname="org.eclipse.paho.client.mqttv3.test.automaticReconnect.ResubscribeTest" time="1.22"/>
+  <testcase name="testUnsubscribedTopicNotRestored" classname="org.eclipse.paho.client.mqttv3.test.automaticReconnect.ResubscribeTest" time="1.219"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

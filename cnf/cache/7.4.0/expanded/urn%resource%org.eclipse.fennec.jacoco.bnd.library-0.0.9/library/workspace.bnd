@@ -1,0 +1,14 @@
+-plugin.jacoco: \
+	aQute.bnd.repository.maven.provider.MavenBndRepository;\
+		releaseUrl	= "https://repo.maven.apache.org/maven2/"; \
+		snapshotUrl	= "https://oss.sonatype.org/content/repositories/snapshots/";\
+		index           = "${.}/jacoco.maven" ;\
+		poll.time	= -1;\
+		readOnly	= true;\
+		name="Jacoco Dependencies"
+
+jacoco.version: 0.8.14
+
+jacoco: true
+
+-require-bnd: "(version>=7.1.0)"

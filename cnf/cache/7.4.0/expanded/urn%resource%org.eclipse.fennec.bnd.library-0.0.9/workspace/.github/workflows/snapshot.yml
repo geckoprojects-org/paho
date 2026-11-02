@@ -1,0 +1,61 @@
+name: Snapshot Build
+on:
+  push:
+    # This snapshot build should only happen on pushes to the snapshot branch.
+    branches:
+      - snapshot
+  pull_request:
+    # This snapshot build should NOT happen on pull requests.
+    # Therefore, we explicitly exclude all branches for pull requests.
+    branches-ignore:
+      - '*'
+
+env:
+  LC_ALL: en_US.UTF-8
+  GRADLE_OPTS: >-
+    -Dorg.gradle.parallel=true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  snapshot:
+    name: Gradle Snapshot Build
+    runs-on: ubuntu-latest
+    env:
+      CS_PASSWORD: ${{secrets.CENTRAL_SONATYPE_TOKEN_PASSWORD}}
+      CS_USERNAME: ${{secrets.CENTRAL_SONATYPE_TOKEN_USERNAME}}
+      GPG_PASSPHRASE: ${{secrets.GPG_PASSPHRASE}}
+      GPG_KEY_ID: ${{secrets.GPG_KEY_ID}}
+      GPG_PRIVATE_KEY: ${{secrets.GPG_PRIVATE_KEY}}
+      DO_RELEASE: false
+    steps:
+    - name: Git Checkout
+      uses: actions/checkout@v4
+    - name: Gradle Wrapper Validation
+      uses: gradle/actions/wrapper-validation@v4
+    - name: Set up Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: "temurin"
+        cache: "gradle"
+        java-version: 21
+    - name: Grant execute permission for gradlew
+      run: chmod +x ./gradlew
+    - name: Gradle version
+      run: ./gradlew --no-daemon --version
+    - name: Setup GPG and jp environment
+      run: |
+        sudo apt-get update && sudo apt-get install -y gnupg2 jp
+        echo "$GPG_PRIVATE_KEY" > private.key
+        echo "$GPG_PASSPHRASE" | gpg --batch --passphrase-fd 0 --pinentry-mode loopback --no-tty --quiet --yes --import private.key
+        rm private.key
+      shell: bash 
+    - name: Build with Gradle
+      run: ./gradlew release --info
+    - name: Delete GPG key from keyring
+      if: always()
+      run: |
+        rm -rf ~/.gnupg
+      shell: bash

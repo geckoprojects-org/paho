@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>org.eclipse.fennec.bnd</groupId>
+  <artifactId>org.eclipse.fennec.jacoco.bnd.library</artifactId>
+  <version>0.0.9</version>
+  <description>Eclipse Fennec Jacoco support as bndtools library</description>
+  <name>Bnd library for Jacoco</name>
+  <url>https://github.com/eclipse-fennec/fennec.bnd.libraries</url>
+  <organization>
+    <name>Eclipse Foundation</name>
+  </organization>
+  <licenses>
+    <license>
+      <name>Eclipse Public License 2.0</name>
+      <url>Eclipse Public License 2.0</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+  <scm>
+    <url>https://github.com/eclipse-fennec/fennec.bnd.libraries</url>
+    <connection>scm:git:https://github.com/eclipse-fennec/fennec.bnd.libraries.git</connection>
+    <developerConnection>scm:git:git@github.com:eclipse-fennec/fennec.bnd.libraries.git</developerConnection>
+  </scm>
+  <developers>
+    <developer>
+      <id>jalbert</id>
+      <email>j.albert@datainmotion.com</email>
+      <name>Juergen Albert</name>
+      <organization>Data In Motion</organization>
+      <organizationUrl>https://www.datainmotion.com</organizationUrl>
+      <roles>
+        <role>architect</role>
+        <role>developer</role>
+      </roles>
+    </developer>
+    <developer>
+      <id>mhoffmann</id>
+      <name>Mark Hoffmann</name>
+      <email>m.hoffmann@datainmotion.com</email>
+      <organization>Data In Motion</organization>
+      <organizationUrl>https://www.datainmotion.com</organizationUrl>
+      <roles>
+        <role>developer</role>
+        <role>architect</role>
+      </roles>
+    </developer>
+  </developers>
+</project>

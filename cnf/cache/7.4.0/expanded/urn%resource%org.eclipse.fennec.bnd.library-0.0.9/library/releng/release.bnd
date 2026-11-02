@@ -1,0 +1,4 @@
+# We have to substitute the -SNAPSHOT with an empty String for releases
+-snapshot: 
+
+

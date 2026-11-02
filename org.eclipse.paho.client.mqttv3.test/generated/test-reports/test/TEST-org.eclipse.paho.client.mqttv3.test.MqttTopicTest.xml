@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="org.eclipse.paho.client.mqttv3.test.MqttTopicTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-11-02T18:30:44.261Z" hostname="mark-dell" time="0.008">
+  <properties/>
+  <testcase name="testValidTopicFilterWildcards" classname="org.eclipse.paho.client.mqttv3.test.MqttTopicTest" time="0.001"/>
+  <testcase name="testInvalidTopicFilterWildcards1" classname="org.eclipse.paho.client.mqttv3.test.MqttTopicTest" time="0.001"/>
+  <testcase name="testInvalidTopicFilterWildcards2" classname="org.eclipse.paho.client.mqttv3.test.MqttTopicTest" time="0.0"/>
+  <testcase name="testInvalidTopicFilterWildcards3" classname="org.eclipse.paho.client.mqttv3.test.MqttTopicTest" time="0.0"/>
+  <testcase name="testInvalidTopicFilterWildcards4" classname="org.eclipse.paho.client.mqttv3.test.MqttTopicTest" time="0.001"/>
+  <testcase name="testInvalidTopicFilterWildcards5" classname="org.eclipse.paho.client.mqttv3.test.MqttTopicTest" time="0.0"/>
+  <testcase name="testMatchedTopicFilterWildcards" classname="org.eclipse.paho.client.mqttv3.test.MqttTopicTest" time="0.001"/>
+  <testcase name="testNonMatchedTopicFilterWildcards" classname="org.eclipse.paho.client.mqttv3.test.MqttTopicTest" time="0.0"/>
+  <system-out><![CDATA[20261102 193044.263 
+20261102 193044.264 *************************************************************
+20261102 193044.264 * MqttTopicTest.setUpBeforeClass
+20261102 193044.264 *************************************************************
+20261102 193044.265 
+20261102 193044.265 *************************************************************
+20261102 193044.265 * MqttTopicTest.testValidTopicFilterWildcards
+20261102 193044.265 *************************************************************
+20261102 193044.266 
+20261102 193044.266 *************************************************************
+20261102 193044.266 * MqttTopicTest.testInvalidTopicFilterWildcards1
+20261102 193044.267 *************************************************************
+20261102 193044.267 
+20261102 193044.267 *************************************************************
+20261102 193044.267 * MqttTopicTest.testInvalidTopicFilterWildcards2
+20261102 193044.267 *************************************************************
+20261102 193044.267 
+20261102 193044.268 *************************************************************
+20261102 193044.268 * MqttTopicTest.testInvalidTopicFilterWildcards3
+20261102 193044.268 *************************************************************
+20261102 193044.268 
+20261102 193044.268 *************************************************************
+20261102 193044.268 * MqttTopicTest.testInvalidTopicFilterWildcards4
+20261102 193044.268 *************************************************************
+20261102 193044.269 
+20261102 193044.269 *************************************************************
+20261102 193044.269 * MqttTopicTest.testInvalidTopicFilterWildcards5
+20261102 193044.269 *************************************************************
+20261102 193044.269 
+20261102 193044.269 *************************************************************
+20261102 193044.269 * MqttTopicTest.testMatchedTopicFilterWildcards
+20261102 193044.269 *************************************************************
+20261102 193044.270 
+20261102 193044.270 *************************************************************
+20261102 193044.270 * MqttTopicTest.testNonMatchedTopicFilterWildcards
+20261102 193044.270 *************************************************************
+20261102 193044.270 
+20261102 193044.270 *************************************************************
+20261102 193044.271 * MqttTopicTest.tearDownAfterClass
+20261102 193044.271 *************************************************************
+]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>
