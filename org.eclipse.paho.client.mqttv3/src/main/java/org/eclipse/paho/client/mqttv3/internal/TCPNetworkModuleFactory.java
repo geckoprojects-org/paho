@@ -41,8 +41,8 @@ public class TCPNetworkModuleFactory implements NetworkModuleFactory {
 	public NetworkModule createNetworkModule(URI brokerUri, MqttConnectOptions options, String clientId)
 			throws MqttException
 	{
-		String host = brokerUri.getHost();
-		int port = brokerUri.getPort(); // -1 if not defined
+		String host = NetworkModuleService.getHost(brokerUri);
+		int port = NetworkModuleService.getPort(brokerUri); // -1 if not defined
 		if (port == -1) {
 			port = 1883;
 		}

@@ -145,12 +145,63 @@ public class NetworkModuleService {
 	 *
 	 * @see URI#URI(String, String, String, int, String, String, String)
 	 */
+	/**
+	 * Returns the host of a broker URI. {@link URI} implements RFC 2396, which does not allow
+	 * {@code _} in host names; for such an authority {@link URI#getHost()} is {@code null} although
+	 * RFC 3986 allows it. The authority is then parsed here instead. This replaces patching the
+	 * private fields of the URI, which Java 16 and later deny.
+	 *
+	 * @param uri the broker URI
+	 * @return the host, or {@code null} if the URI has none
+	 */
+	public static String getHost(URI uri) {
+		Matcher matcher = matchRegistryAuthority(uri);
+		return matcher == null ? uri.getHost() : matcher.group(AUTH_GROUP_HOST);
+	}
+
+	/**
+	 * Returns the port of a broker URI, see {@link #getHost(URI)}.
+	 *
+	 * @param uri the broker URI
+	 * @return the port, or -1 if the URI has none
+	 */
+	public static int getPort(URI uri) {
+		Matcher matcher = matchRegistryAuthority(uri);
+		if (matcher == null) {
+			return uri.getPort();
+		}
+		String portString = matcher.group(AUTH_GROUP_PORT);
+		return portString != null ? Integer.parseInt(portString) : -1;
+	}
+
+	/**
+	 * Returns the user information of a broker URI, see {@link #getHost(URI)}.
+	 *
+	 * @param uri the broker URI
+	 * @return the user information, or {@code null} if the URI has none
+	 */
+	public static String getUserInfo(URI uri) {
+		Matcher matcher = matchRegistryAuthority(uri);
+		return matcher == null ? uri.getUserInfo() : matcher.group(AUTH_GROUP_USERINFO);
+	}
+
+	/** Matches the authority of a URI whose host {@link URI} could not parse, else {@code null}. */
+	private static Matcher matchRegistryAuthority(URI uri) {
+		if (uri.getHost() != null || uri.getAuthority() == null || uri.getAuthority().isEmpty()) {
+			return null;
+		}
+		Matcher matcher = AUTHORITY_PATTERN.matcher(uri.getAuthority());
+		return matcher.find() ? matcher : null;
+	}
+
 	private static void setURIField(URI toManipulate, String fieldName, Object newValue) {
 		try {
 			Field field = URI.class.getDeclaredField(fieldName);
 			field.setAccessible(true);
 			field.set(toManipulate, newValue);
-		} catch (NoSuchFieldException | SecurityException | IllegalArgumentException | IllegalAccessException e) {
+		} catch (NoSuchFieldException | IllegalAccessException | RuntimeException e) {
+			// RuntimeException: Java 16+ throws InaccessibleObjectException; the built-in network
+			// modules do not depend on the patch, they use getHost/getPort/getUserInfo(URI).
 			LOG.warning(NetworkModuleService.class.getName(), "setURIField", "115", new Object[] {
 					toManipulate.toString() }, e);
 		}

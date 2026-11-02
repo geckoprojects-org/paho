@@ -21,6 +21,7 @@ import javax.net.ssl.SSLSocketFactory;
 import org.eclipse.paho.mqttv5.client.MqttClientException;
 import org.eclipse.paho.mqttv5.client.MqttConnectionOptions;
 import org.eclipse.paho.mqttv5.client.internal.NetworkModule;
+import org.eclipse.paho.mqttv5.client.internal.NetworkModuleService;
 import org.eclipse.paho.mqttv5.client.spi.NetworkModuleFactory;
 import org.eclipse.paho.mqttv5.common.ExceptionHelper;
 import org.eclipse.paho.mqttv5.common.MqttException;
@@ -41,8 +42,8 @@ public class WebSocketNetworkModuleFactory implements NetworkModuleFactory {
 	public NetworkModule createNetworkModule(URI brokerUri, MqttConnectionOptions options, String clientId)
 			throws MqttException
 	{
-		String host = brokerUri.getHost();
-		int port = brokerUri.getPort(); // -1 if not defined
+		String host = NetworkModuleService.getHost(brokerUri);
+		int port = NetworkModuleService.getPort(brokerUri); // -1 if not defined
 		if (port == -1) {
 			port = 80;
 		}

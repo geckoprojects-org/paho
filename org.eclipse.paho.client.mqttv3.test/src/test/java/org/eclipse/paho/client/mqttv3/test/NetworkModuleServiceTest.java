@@ -74,21 +74,37 @@ public class NetworkModuleServiceTest {
 	 * Test for URI parsing with '_' in hostname.
 	 */
 	@Test
-	public void testApplyRFC3986AuthorityPatch() throws URISyntaxException {
+	public void testRFC3986Authority() throws URISyntaxException {
 		URI uri = new URI("tcp://user:password@some_host:666/some_path");
 		/*
-		 * If the following asserts trigger, then the patch may be no longer required, as Java URI class does the
-		 * RFC3986 parsing itself.
+		 * If the following asserts trigger, the Java URI class parses RFC 3986 host names itself and
+		 * the fallback of NetworkModuleService.getHost/getPort/getUserInfo is no longer used.
 		 */
-		assertNull("patch no longer necessary?", uri.getUserInfo());
-		assertNull("patch no longer necessary?", uri.getHost());
-		assertEquals("patch no longer necessary?", -1, uri.getPort());
+		assertNull("fallback no longer necessary?", uri.getUserInfo());
+		assertNull("fallback no longer necessary?", uri.getHost());
+		assertEquals("fallback no longer necessary?", -1, uri.getPort());
 
-		NetworkModuleService.applyRFC3986AuthorityPatch(uri);
+		assertEquals("wrong user info", "user:password", NetworkModuleService.getUserInfo(uri));
+		assertEquals("wrong hostname", "some_host", NetworkModuleService.getHost(uri));
+		assertEquals("wrong port", 666, NetworkModuleService.getPort(uri));
 
-		assertEquals("wrong user info", "user:password", uri.getUserInfo());
-		assertEquals("wrong hostname", "some_host", uri.getHost());
-		assertEquals("wrong port", 666, uri.getPort());
+		URI plain = new URI("tcp://user@localhost:1883");
+		assertEquals("user", NetworkModuleService.getUserInfo(plain));
+		assertEquals("localhost", NetworkModuleService.getHost(plain));
+		assertEquals(1883, NetworkModuleService.getPort(plain));
+		assertEquals(-1, NetworkModuleService.getPort(new URI("tcp://localhost")));
+	}
+
+	@Test
+	public void testCreateInstanceWithUnderscoreHost() throws MqttException {
+		// Upstream patched the private fields of java.net.URI for such host names, which fails on
+		// Java 16 and later.
+		String brokerUri = "tcp://some_host:666";
+
+		NetworkModule result = NetworkModuleService.createInstance(brokerUri, new MqttConnectOptions(), "");
+
+		assertTrue(result instanceof TCPNetworkModule);
+		assertEquals(brokerUri, result.getServerURI());
 	}
 
 	@Test

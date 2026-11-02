@@ -12,6 +12,7 @@
  *
  * Contributors:
  *    James Sutton - Bug 459142 - WebSocket support for the Java client.
+ *    Mark Hoffmann - host names beyond RFC 2396 without URI reflection
  */
 package org.eclipse.paho.client.mqttv3.internal.websocket;
 
@@ -32,6 +33,7 @@ import java.util.UUID;
 import java.util.Properties;
 import java.util.Set;
 import java.util.Iterator;
+import org.eclipse.paho.client.mqttv3.internal.NetworkModuleService;
 /**
  * Helper class to execute a WebSocket Handshake.
  */
@@ -122,7 +124,7 @@ public class WebSocketHandshake {
 				}
 			}
 
-			String userInfo = srvUri.getUserInfo();
+			String userInfo = NetworkModuleService.getUserInfo(srvUri);
 			if(userInfo != null) {
 				pw.print("Authorization: Basic " + Base64.encode(userInfo) + LINE_SEPARATOR);
 			}
