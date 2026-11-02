@@ -374,6 +374,10 @@ public class ClientComms {
 			token.internalTok.setException(reason);
 		}
 
+		// A callback may be waiting for one of the outstanding tokens; wake it before waiting
+		// for the callback thread below, see releaseTokenWaiters.
+		releaseTokenWaiters(token, reason);
+
 		// Stop the thread that is used to call the user back
 		// when actions complete
 		if (callback!= null) {callback.stop(); }
@@ -456,6 +460,38 @@ public class ClientComms {
 				} catch (Exception e) { // ignore any errors as closing
 				}
 			}
+		}
+	}
+
+
+	/**
+	 * Wakes threads waiting for an outstanding token, before shutdownConnection waits for the
+	 * callback thread to finish. Without this a callback that waits for a token, e.g. a QoS 1
+	 * publish from messageArrived (which the MqttCallback documentation allows), and a connection
+	 * loss block each other for good: callback.stop() waits for the callback, the callback waits for
+	 * its token, and the token would only be failed afterwards (handleOldTokens), on the callback
+	 * thread. The client then never reconnects.
+	 * <p>
+	 * The tokens get the exception resolveOldTokens would set later, so waiters see the same result,
+	 * only earlier; a token whose acknowledgement has arrived completes normally. Listener callbacks
+	 * stay with handleOldTokens. The connect and disconnect tokens are notified at the end of the
+	 * shutdown as before.
+	 */
+	private void releaseTokenWaiters(MqttToken shutdownToken, MqttException reason) {
+		MqttException shutReason = reason != null ? reason : new MqttException(MqttException.REASON_CODE_CLIENT_DISCONNECTING);
+		Enumeration outstanding = tokenStore.getOutstandingTokens().elements();
+		while (outstanding.hasMoreElements()) {
+			MqttToken tok = (MqttToken) outstanding.nextElement();
+			String key = tok.internalTok.getKey();
+			if (tok == shutdownToken || MqttConnect.KEY.equals(key) || MqttDisconnect.KEY.equals(key)) {
+				continue;
+			}
+			synchronized (tok) {
+				if (!tok.isComplete() && !tok.internalTok.isCompletePending() && tok.getException() == null) {
+					tok.internalTok.setException(shutReason);
+				}
+			}
+			tok.internalTok.notifyComplete();
 		}
 	}
 
