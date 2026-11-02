@@ -19,6 +19,7 @@ are.
 | [#7](https://github.com/geckoprojects-org/paho/issues/7) | [#425](https://github.com/eclipse-paho/paho.mqtt.java/issues/425), [#654](https://github.com/eclipse-paho/paho.mqtt.java/issues/654) | v3, v5 | `disconnect()` and `close()` end the automatic reconnect cycle: no reconnect after `disconnect()`, no reconnect thread after `close()`, no `NullPointerException` from `reconnect()` before `connect()`. |
 | [#8](https://github.com/geckoprojects-org/paho/issues/8) | [#958](https://github.com/eclipse-paho/paho.mqtt.java/issues/958) | v3, v5 | Keep-alive pings and the reconnect delay are scheduled on the monotonic clock; a time jump back no longer delays them. Same thread count as before. |
 | [#9](https://github.com/geckoprojects-org/paho/issues/9) | [#1065](https://github.com/eclipse-paho/paho.mqtt.java/issues/1065) | v3 | A callback waiting for a client operation (e.g. a QoS 1 publish in `messageArrived`) no longer deadlocks the shutdown on connection loss, so the client reconnects. v5 is not affected. |
+| [#10](https://github.com/geckoprojects-org/paho/issues/10) | [#551](https://github.com/eclipse-paho/paho.mqtt.java/issues/551) | v3, v5 | The in-flight slot of a QoS 1/2 publish is freed before the waiting publisher resumes; sequential publishes no longer get "Too many publishes in progress". |
 
 ## Planned
 
@@ -30,7 +31,6 @@ are.
 
 | Issue | Upstream | Clients | Summary |
 |---|---|---|---|
-| [#10](https://github.com/geckoprojects-org/paho/issues/10) | [#551](https://github.com/eclipse-paho/paho.mqtt.java/issues/551) | v3, v5 | "Too many publishes in progress" with sequential QoS 1/2 publishes. |
 | [#11](https://github.com/geckoprojects-org/paho/issues/11) | [#828](https://github.com/eclipse-paho/paho.mqtt.java/issues/828) | v3 | No PUBACK for redelivered QoS 1 messages with a persistent session. |
 | [#12](https://github.com/geckoprojects-org/paho/issues/12) | [#1098](https://github.com/eclipse-paho/paho.mqtt.java/issues/1098), [#1099](https://github.com/eclipse-paho/paho.mqtt.java/issues/1099) | v3 | Several clients in one JVM: TCP without CONNECT after a broker restart. Investigated, not reproduced so far. |
 
