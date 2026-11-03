@@ -11,6 +11,9 @@ class ExtendedByteArrayOutputStream extends ByteArrayOutputStream {
 
 	final WebSocketNetworkModule webSocketNetworkModule;
 	final WebSocketSecureNetworkModule webSocketSecureNetworkModule;
+	// Frames of the MQTT sender, the pongs of the receiver and the close frame
+	// must not interleave on the socket
+	private final Object frameLock = new Object();
 
 	ExtendedByteArrayOutputStream(WebSocketNetworkModule module) {
 		this.webSocketNetworkModule = module;
@@ -28,11 +31,22 @@ class ExtendedByteArrayOutputStream extends ByteArrayOutputStream {
 			byteBuffer = ByteBuffer.wrap(toByteArray());
 			reset();
 		}
-		WebSocketFrame frame = new WebSocketFrame((byte)0x02, true, byteBuffer.array());
+		writeFrame(new WebSocketFrame(WebSocketFrame.OPCODE_BINARY, true, byteBuffer.array()));
+	}
+
+	/**
+	 * Writes a frame to the socket, one frame at a time.
+	 *
+	 * @param frame the frame
+	 * @throws IOException if the socket cannot be written
+	 */
+	void writeFrame(WebSocketFrame frame) throws IOException {
 		byte[] rawFrame = frame.encodeFrame();
-		getSocketOutputStream().write(rawFrame);
-		getSocketOutputStream().flush();
-		
+		synchronized (frameLock) {
+			OutputStream out = getSocketOutputStream();
+			out.write(rawFrame);
+			out.flush();
+		}
 	}
 
 	OutputStream getSocketOutputStream() throws IOException {

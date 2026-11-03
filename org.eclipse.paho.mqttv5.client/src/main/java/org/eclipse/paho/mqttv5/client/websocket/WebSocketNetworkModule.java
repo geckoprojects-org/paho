@@ -13,10 +13,10 @@
  * Contributors:
  *    James Sutton - Bug 459142 - WebSocket support for the Java client.
  *    Mark Hoffmann - bounded WebSocket input
+ *    Mark Hoffmann - ping, pong and fragmented frames
  */
 package org.eclipse.paho.mqttv5.client.websocket;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -50,7 +50,7 @@ public class WebSocketNetworkModule extends TCPNetworkModule {
 	 * This allows us to encode the MQTT payload into a WebSocket
 	 *  Frame before passing it through to the real socket.
 	 */
-	private ByteArrayOutputStream outputStream = new ExtendedByteArrayOutputStream(this);
+	private final ExtendedByteArrayOutputStream outputStream = new ExtendedByteArrayOutputStream(this);
 	
 	public WebSocketNetworkModule(SocketFactory factory, String uri, String host, int port, String resourceContext){
 		super(factory, host, port, resourceContext);
@@ -66,7 +66,7 @@ public class WebSocketNetworkModule extends TCPNetworkModule {
 		super.start();
 		WebSocketHandshake handshake = new WebSocketHandshake(getSocketInputStream(), getSocketOutputStream(), uri, host, port, customWebSocketHeaders);
 		handshake.execute();
-		this.webSocketReceiver = new WebSocketReceiver(getSocketInputStream(), pipedInputStream, maxFramePayloadLength);
+		this.webSocketReceiver = new WebSocketReceiver(getSocketInputStream(), pipedInputStream, maxFramePayloadLength, outputStream);
 		webSocketReceiver.start("webSocketReceiver");
 	}
 	
@@ -95,10 +95,7 @@ public class WebSocketNetworkModule extends TCPNetworkModule {
 	 */
 	public void stop() throws IOException {
 		// Creating Close Frame
-		WebSocketFrame frame = new WebSocketFrame((byte)0x08, true, "1000".getBytes());
-		byte[] rawFrame = frame.encodeFrame();
-		getSocketOutputStream().write(rawFrame);
-		getSocketOutputStream().flush();
+		outputStream.writeFrame(new WebSocketFrame(WebSocketFrame.OPCODE_CLOSE, true, "1000".getBytes()));
 
 		if(webSocketReceiver != null){
 			webSocketReceiver.stop();

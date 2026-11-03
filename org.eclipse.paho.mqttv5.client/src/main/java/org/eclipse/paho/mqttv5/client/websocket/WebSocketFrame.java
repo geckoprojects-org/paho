@@ -13,6 +13,7 @@
  * Contributors:
  *    James Sutton - Bug 459142 - WebSocket support for the Java client.
  *    Mark Hoffmann - bounded WebSocket input
+ *    Mark Hoffmann - ping, pong and fragmented frames
  */
 package org.eclipse.paho.mqttv5.client.websocket;
 
@@ -32,6 +33,16 @@ public class WebSocketFrame {
 
 	
 	public static final int frameLengthOverhead = 6;
+
+	/** Opcodes of RFC 6455, section 5.2. */
+	public static final byte OPCODE_CONTINUATION = 0x00;
+	public static final byte OPCODE_BINARY = 0x02;
+	public static final byte OPCODE_CLOSE = 0x08;
+	public static final byte OPCODE_PING = 0x09;
+	public static final byte OPCODE_PONG = 0x0A;
+
+	/** The largest payload of a control frame (RFC 6455, section 5.5). */
+	public static final int MAX_CONTROL_PAYLOAD_LENGTH = 125;
 	
 	private byte opcode;
 	private boolean fin;
@@ -158,56 +169,62 @@ public class WebSocketFrame {
 	public WebSocketFrame(InputStream input, int maxPayloadLength) throws IOException {
 		byte firstByte = (byte) readByte(input);
 		setFinAndOpCode(firstByte);
-		if (this.opcode == 2) {
-			int maskLengthByte = readByte(input);
-			boolean masked = ((maskLengthByte & 0x80) != 0);
-			long payloadLength = maskLengthByte & 0x7F;
-			int byteCount = 0;
-			if (payloadLength == 0X7F) {
-				// 8 Byte Extended payload length
-				byteCount = 8;
-			} else if (payloadLength == 0X7E) {
-				// 2 bytes extended payload length
-				byteCount = 2;
-			}
-
-			// Decode the payload length; checked per byte, so that the
-			// 64-bit length cannot overflow
-			if (byteCount > 0) {
-				payloadLength = 0;
-			}
-			while (--byteCount >= 0) {
-				payloadLength = (payloadLength << 8) | readByte(input);
-				if (payloadLength > maxPayloadLength) {
-					break;
-				}
-			}
-			if (payloadLength > maxPayloadLength) {
-				throw new IOException("Invalid Frame: payload longer than " + maxPayloadLength + " bytes");
-			}
-
-			// Get the masking key
-			byte[] maskingKey = null;
-			if (masked) {
-				maskingKey = new byte[4];
-				readFully(input, maskingKey);
-			}
-
-			this.payload = new byte[(int) payloadLength];
-			readFully(input, this.payload);
-
-			// Demask if needed
-			if (masked) {
-				for (int i = 0; i < this.payload.length; i++) {
-					this.payload[i] ^= maskingKey[i % 4];
-				}
-			}
-			return;
-		} else if (this.opcode == 8) {
+		if (this.opcode == OPCODE_CLOSE) {
 			// Closing connection with server
 			closeFlag = true;
-		} else {
+			return;
+		}
+		if (this.opcode == OPCODE_PING || this.opcode == OPCODE_PONG) {
+			// Control frames are not fragmented and carry at most 125 bytes
+			if (!this.fin) {
+				throw new IOException("Invalid Frame: fragmented control frame");
+			}
+			maxPayloadLength = Math.min(maxPayloadLength, MAX_CONTROL_PAYLOAD_LENGTH);
+		} else if (this.opcode != OPCODE_BINARY && this.opcode != OPCODE_CONTINUATION) {
 			throw new IOException("Invalid Frame: Opcode: " + this.opcode);
+		}
+		int maskLengthByte = readByte(input);
+		boolean masked = ((maskLengthByte & 0x80) != 0);
+		long payloadLength = maskLengthByte & 0x7F;
+		int byteCount = 0;
+		if (payloadLength == 0X7F) {
+			// 8 Byte Extended payload length
+			byteCount = 8;
+		} else if (payloadLength == 0X7E) {
+			// 2 bytes extended payload length
+			byteCount = 2;
+		}
+
+		// Decode the payload length; checked per byte, so that the
+		// 64-bit length cannot overflow
+		if (byteCount > 0) {
+			payloadLength = 0;
+		}
+		while (--byteCount >= 0) {
+			payloadLength = (payloadLength << 8) | readByte(input);
+			if (payloadLength > maxPayloadLength) {
+				break;
+			}
+		}
+		if (payloadLength > maxPayloadLength) {
+			throw new IOException("Invalid Frame: payload longer than " + maxPayloadLength + " bytes");
+		}
+
+		// Get the masking key
+		byte[] maskingKey = null;
+		if (masked) {
+			maskingKey = new byte[4];
+			readFully(input, maskingKey);
+		}
+
+		this.payload = new byte[(int) payloadLength];
+		readFully(input, this.payload);
+
+		// Demask if needed
+		if (masked) {
+			for (int i = 0; i < this.payload.length; i++) {
+				this.payload[i] ^= maskingKey[i % 4];
+			}
 		}
 	}
 

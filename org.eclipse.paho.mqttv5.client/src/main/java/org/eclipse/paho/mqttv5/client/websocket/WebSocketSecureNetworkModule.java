@@ -13,10 +13,10 @@
  * Contributors:
  *    James Sutton - Bug 459142 - WebSocket support for the Java client.
  *    Mark Hoffmann - bounded WebSocket input
+ *    Mark Hoffmann - ping, pong and fragmented frames
  */
 package org.eclipse.paho.mqttv5.client.websocket;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -50,7 +50,7 @@ public class WebSocketSecureNetworkModule extends SSLNetworkModule{
 	 * This allows us to encode the MQTT payload into a WebSocket
 	 *  Frame before passing it through to the real socket.
 	 */
-	private ByteArrayOutputStream outputStream = new ExtendedByteArrayOutputStream(this);
+	private final ExtendedByteArrayOutputStream outputStream = new ExtendedByteArrayOutputStream(this);
 
 	public WebSocketSecureNetworkModule(SSLSocketFactory factory, String uri, String host, int port, String clientId) {
 		super(factory, host, port, clientId);
@@ -65,7 +65,7 @@ public class WebSocketSecureNetworkModule extends SSLNetworkModule{
 		super.start();
 		WebSocketHandshake handshake = new WebSocketHandshake(super.getInputStream(), super.getOutputStream(), uri, host, port, customWebSocketHeaders);
 		handshake.execute();
-		this.webSocketReceiver = new WebSocketReceiver(getSocketInputStream(), pipedInputStream, maxFramePayloadLength);
+		this.webSocketReceiver = new WebSocketReceiver(getSocketInputStream(), pipedInputStream, maxFramePayloadLength, outputStream);
 		webSocketReceiver.start("WssSocketReceiver");
 
 	}
@@ -92,10 +92,7 @@ public class WebSocketSecureNetworkModule extends SSLNetworkModule{
 
 	public void stop() throws IOException {
 		// Creating Close Frame
-		WebSocketFrame frame = new WebSocketFrame((byte)0x08, true, "1000".getBytes());
-		byte[] rawFrame = frame.encodeFrame();
-		getSocketOutputStream().write(rawFrame);
-		getSocketOutputStream().flush();
+		outputStream.writeFrame(new WebSocketFrame(WebSocketFrame.OPCODE_CLOSE, true, "1000".getBytes()));
 
 		if(webSocketReceiver != null){
 			webSocketReceiver.stop();
