@@ -27,6 +27,7 @@ header:
     - 'org.eclipse.paho.mqttv5.client/src/**/*.java'
     - 'org.eclipse.paho.client.mqttv3.test/src/**/*.java'
     - 'org.eclipse.paho.mqttv5.client.test/src/**/*.java'
+    - 'org.eclipse.paho.loadtest/src/**/*.java'
     - 'cnf/scripts/*.sh'
     - 'test/broker/*.sh'
 

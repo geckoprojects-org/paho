@@ -1,0 +1,11 @@
+# Load test of the v3 and v5 clients against the Mosquitto test broker (test/broker), run with
+# ./gradlew loadTest; not part of `build`. No bundle is built here.
+-nobundles: true
+-releaserepo:
+
+src: src/main/java
+testsrc: src/test/java
+
+-buildpath: \
+	org.eclipse.paho.client.mqttv3;version=snapshot,\
+	org.eclipse.paho.mqttv5.client;version=snapshot

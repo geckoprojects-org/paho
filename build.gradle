@@ -100,6 +100,32 @@ brokerTests.each { projectName, testClasses ->
     }
 }
 
+// The load test (org.eclipse.paho.loadtest) runs only on request, against the broker of
+// test/broker/start-broker.sh: ./gradlew loadTest, sizes via -Ppaho.load.clients, .messages, .rounds.
+findProject(':org.eclipse.paho.loadtest')?.with {
+    test {
+        enabled = false
+    }
+    tasks.register('loadTest', Test) {
+        description = 'Runs the load test against the broker started by test/broker/start-broker.sh.'
+        group = 'verification'
+        testClassesDirs = sourceSets.test.output.classesDirs
+        classpath = sourceSets.test.runtimeClasspath
+        useJUnitPlatform()
+        outputs.upToDateWhen { false }
+        testLogging {
+            showStandardStreams = true
+        }
+        ['broker', 'clients', 'messages', 'rounds', 'timeoutMs', 'reconnectBoundMs'].each { key ->
+            def value = findProperty("paho.load.${key}")
+            if (value != null) {
+                systemProperty "paho.load.${key}", value
+            }
+        }
+        reports.junitXml.outputLocation = layout.buildDirectory.dir('test-results/loadTest')
+    }
+}
+
 // Sonar setup — values come from gradle.properties (github_org, github_repository)
 sonarqube {
   properties {

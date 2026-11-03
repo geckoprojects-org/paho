@@ -115,6 +115,8 @@ Not upstream contributions, but different from an upstream build:
   (CI: 2). The upstream broker tests run with `./gradlew brokerTest` against a Mosquitto 2 test
   broker in a container, with renewed test certificates (the upstream ones expired in 2018); see
   the README.
+- A load test of both clients (`org.eclipse.paho.loadtest`, `./gradlew loadTest`) against the
+  same broker, on request only (#32).
 - Upstream modules that are not built here (samples, trace formatter, p2 repositories) are removed.
 
 ## Contributing back

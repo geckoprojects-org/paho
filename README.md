@@ -70,6 +70,17 @@ test/broker/start-broker.sh
 test/broker/stop-broker.sh
 ```
 
+The load test (`org.eclipse.paho.loadtest`, issue #32) runs against the same broker, only on
+request:
+
+```
+./gradlew loadTest -Ppaho.load.clients=20 -Ppaho.load.messages=500 -Ppaho.load.rounds=5
+```
+
+It covers throughput with QoS 1 and 2, a reconnect storm through a proxy that drops all
+connections, and the same storm with one shared executor, for v3 and v5. Per scenario it reports
+duration, threads and heap per client to `org.eclipse.paho.loadtest/generated/loadtest-report.txt`.
+
 `test/broker/generate-certs.sh` renews the test certificates and the `clientkeystore.jks` of the test
 modules. Snapshots and releases are built by Jenkins (`Jenkinsfile`); GitHub Actions checks licence
 headers, build and tests.
