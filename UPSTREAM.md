@@ -22,6 +22,7 @@ are.
 | [#10](https://github.com/geckoprojects-org/paho/issues/10) | [#551](https://github.com/eclipse-paho/paho.mqtt.java/issues/551) | v3, v5 | The in-flight slot of a QoS 1/2 publish is freed before the waiting publisher resumes; sequential publishes no longer get "Too many publishes in progress". |
 | [#11](https://github.com/geckoprojects-org/paho/issues/11) | [#828](https://github.com/eclipse-paho/paho.mqtt.java/issues/828) | v3, v5 | A QoS 1/2 message that arrives without callback or message listener (e.g. from a persistent session before `subscribe`) is acknowledged and discarded with a warning, instead of being dropped without PUBACK and redelivered on every connect. |
 | [#31](https://github.com/geckoprojects-org/paho/issues/31) | [#960](https://github.com/eclipse-paho/paho.mqtt.java/issues/960), [#1000](https://github.com/eclipse-paho/paho.mqtt.java/issues/1000) | v3, v5 | The WebSocket transport answers pings with pongs, ignores unsolicited pongs and reassembles fragmented messages (RFC 6455); before, each of them ended the connection, e.g. the idle ping of Mosquitto 2 after about five minutes. The receiver thread writes the pong; all frames go out under one lock. |
+| [#23](https://github.com/geckoprojects-org/paho/issues/23) | – | v3, v5 | With an application `ScheduledExecutorService`, the reconnect delay (v3, v5) and the default keep-alive pings (v3, `pingSender` `null`) run on it instead of a timer thread per client; `close()` leaves the executor running. Without an executor nothing changes. |
 
 ## Behaviour changes for applications
 
@@ -37,6 +38,10 @@ What existing application code may notice when switching from upstream 1.2.5:
 - **`disconnect()` and `close()` end the automatic reconnect cycle** (#7). `reconnect()` without a
   previous `connect()` throws `REASON_CODE_CLIENT_NOT_CONNECTED` instead of a
   `NullPointerException`.
+- **An application executor also runs the client's timers** (#23): the reconnect delay and, with
+  the default ping sender, the keep-alive pings. The executor needs a thread for them besides the
+  receiver, sender and callback tasks of its clients. In v3, a `null` pingSender with an executor
+  no longer throws a `NullPointerException`.
 - **A message without callback or message listener is acknowledged and discarded** (#11), with a
   warning in the log, also with manual acknowledgements. Set the `MqttCallback` before `connect()`
   so that messages of a persistent session are not discarded.
