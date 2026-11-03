@@ -130,7 +130,11 @@ public class PacketSizeTest {
 	@Test
 	public void testPacketAboveTheLimitClosesConnection() throws Exception {
 		connect(new MqttConnectionOptions());
-		broker.publish("big", new byte[1024 * 1024], 0);
+		try {
+			broker.publish("big", new byte[1024 * 1024], 0);
+		} catch (IOException e) {
+			// the client closes the connection after the header, while the rest is still being sent
+		}
 		assertLostWith(MqttClientException.REASON_CODE_INCOMING_PACKET_TOO_LARGE);
 		Assert.assertEquals(0, arrived.get());
 	}

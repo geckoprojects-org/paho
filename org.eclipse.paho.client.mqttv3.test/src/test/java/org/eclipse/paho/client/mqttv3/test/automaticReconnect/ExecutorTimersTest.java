@@ -15,8 +15,10 @@
  *******************************************************************************/
 package org.eclipse.paho.client.mqttv3.test.automaticReconnect;
 
+import java.util.Collections;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
@@ -45,6 +47,11 @@ public class ExecutorTimersTest {
 
 	private FakeMqttBroker broker;
 	private ScheduledExecutorService executor;
+	/**
+	 * Threads of the application's executor. The client renames them while its tasks run on them
+	 * ("MQTT Ping: ..."), so they are told apart by identity, not by name.
+	 */
+	private final Set<Thread> executorThreads = Collections.newSetFromMap(new ConcurrentHashMap<Thread, Boolean>());
 	private MqttAsyncClient client;
 
 	@Before
@@ -55,6 +62,7 @@ public class ExecutorTimersTest {
 			public Thread newThread(Runnable r) {
 				Thread thread = new Thread(r, "app-" + count.incrementAndGet());
 				thread.setDaemon(true);
+				executorThreads.add(thread);
 				return thread;
 			}
 		});
@@ -85,9 +93,12 @@ public class ExecutorTimersTest {
 	}
 
 	/** Names of the live threads that the client starts for its timers. */
-	private static Set<String> timerThreads(String clientId) {
+	private Set<String> timerThreads(String clientId) {
 		Set<String> names = new TreeSet<String>();
 		for (Thread thread : Thread.getAllStackTraces().keySet()) {
+			if (executorThreads.contains(thread)) {
+				continue;
+			}
 			String name = thread.getName();
 			if (name.equals("MQTT Reconnect: " + clientId) || name.equals("MQTT Ping: " + clientId)) {
 				names.add(name);

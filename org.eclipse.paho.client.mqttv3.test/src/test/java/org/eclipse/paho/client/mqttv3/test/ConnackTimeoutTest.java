@@ -113,7 +113,7 @@ public class ConnackTimeoutTest {
 		MqttConnectOptions options = options(CONNECTION_TIMEOUT_S);
 		options.setAutomaticReconnect(true);
 		options.setMaxReconnectDelay(MAX_RECONNECT_DELAY_MS);
-		client.connect(options).waitForCompletion(5000);
+		client.connect(options).waitForCompletion(TestTiming.scaled(5000));
 		Assert.assertEquals(1, broker.getConnectCount());
 
 		broker.setAnswering(false);
