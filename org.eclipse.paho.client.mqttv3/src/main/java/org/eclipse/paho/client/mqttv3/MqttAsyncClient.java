@@ -18,7 +18,7 @@
  *    James Sutton - Bug 459142 - WebSocket support for the Java client.
  *    James Sutton - Automatic Reconnect & Offline Buffering.
  *    Mark Hoffmann - automatic reconnect fixes, warning for credentials without TLS,
- *                    random client ids
+ *                    random client ids, timers on the application's executor
  */
 
 package org.eclipse.paho.client.mqttv3;
@@ -453,9 +453,15 @@ public class MqttAsyncClient implements IMqttAsyncClient {
 	 *            the persistence class to use to store in-flight message. If
 	 *            null then the default persistence mechanism is used
 	 * @param pingSender
-	 *            Custom {@link MqttPingSender} implementation.
+	 *            Custom {@link MqttPingSender} implementation. If null, a
+	 *            {@link ScheduledExecutorPingSender} on the executorService, or a
+	 *            {@link TimerPingSender} without one.
 	 * @param executorService
 	 *            used for managing threads. If null no executor service is used.
+	 *            The automatic reconnect delay and, with a {@code null}
+	 *            pingSender, the keep-alive pings are scheduled on it as well;
+	 *            it needs a thread for them besides the client's receiver,
+	 *            sender and callback tasks.
 	 * @throws IllegalArgumentException
 	 *             if the URI does not start with "tcp://", "ssl://" or
 	 *             "local://"
@@ -568,9 +574,15 @@ public class MqttAsyncClient implements IMqttAsyncClient {
 	 *            the persistence class to use to store in-flight message. If
 	 *            null then the default persistence mechanism is used
 	 * @param pingSender
-	 *            Custom {@link MqttPingSender} implementation.
+	 *            Custom {@link MqttPingSender} implementation. If null, a
+	 *            {@link ScheduledExecutorPingSender} on the executorService, or a
+	 *            {@link TimerPingSender} without one.
 	 * @param executorService
 	 *            used for managing threads. If null no executor service is used.
+	 *            The automatic reconnect delay and, with a {@code null}
+	 *            pingSender, the keep-alive pings are scheduled on it as well;
+	 *            it needs a thread for them besides the client's receiver,
+	 *            sender and callback tasks.
 	 * @param highResolutionTimer
 	 * 			  used for providing time values for keepalive ping scheduling. If {@code null}, a default timer is used
 	 * @throws IllegalArgumentException
@@ -618,6 +630,10 @@ public class MqttAsyncClient implements IMqttAsyncClient {
 		}
 
 		this.executorService = executorService;
+		if (pingSender == null) {
+			// Pings on the application's executor, if there is one
+			pingSender = executorService != null ? new ScheduledExecutorPingSender(executorService) : new TimerPingSender();
+		}
 
 		// @TRACE 101=<init> ClientID={0} ServerURI={1} PersistenceType={2}
 		log.fine(CLASS_NAME, methodName, "101", new Object[] { clientId, serverURI, persistence });
@@ -1604,7 +1620,8 @@ public class MqttAsyncClient implements IMqttAsyncClient {
 		String methodName = "startReconnectCycle";
 		// @Trace 503=Start reconnect timer for client: {0}, delay: {1}
 		log.fine(CLASS_NAME, methodName, "503", new Object[] { this.clientId, Long.valueOf(reconnectDelay) });
-		reconnectTimer = new MonotonicTimer("MQTT Reconnect: " + clientId);
+		reconnectTimer = executorService != null ? new MonotonicTimer(executorService)
+				: new MonotonicTimer("MQTT Reconnect: " + clientId);
 		reconnectTimer.schedule(new ReconnectTask(), reconnectDelay);
 	}
 

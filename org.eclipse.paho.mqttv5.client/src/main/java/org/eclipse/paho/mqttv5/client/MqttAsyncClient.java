@@ -12,7 +12,8 @@
  *
  * Contributors:
  *    James Sutton - initial API and implementation and/or initial documentation
- *    Mark Hoffmann - automatic reconnect fixes, warning for credentials without TLS
+ *    Mark Hoffmann - automatic reconnect fixes, warning for credentials without TLS, timers on the
+ *                    application's executor
  */
 
 package org.eclipse.paho.mqttv5.client;
@@ -565,8 +566,11 @@ public class MqttAsyncClient implements MqttClientInterface, IMqttAsyncClient {
 	 *            the {@link MqttPingSender} Implementation to handle timing and
 	 *            sending Ping messages to the server.
 	 * @param executorService
-	 *            used for managing threads. If null then a newScheduledThreadPool
-	 *            is used.
+	 *            used for managing threads. If null no executor service is used.
+	 *            The automatic reconnect delay and, with the default
+	 *            pingSender, the keep-alive pings are scheduled on it as well;
+	 *            it needs a thread for them besides the client's receiver,
+	 *            sender and callback tasks.
 	 * @throws IllegalArgumentException
 	 *             if the URI does not start with "tcp://", "ssl://" or "local://"
 	 * @throws IllegalArgumentException
@@ -1760,7 +1764,8 @@ public class MqttAsyncClient implements MqttClientInterface, IMqttAsyncClient {
 		// @Trace 503=Start reconnect timer for client: {0}, delay: {1}
 		log.fine(CLASS_NAME, methodName, "503",
 				new Object[] { this.mqttSession.getClientId(), Long.valueOf(reconnectDelay) });
-		reconnectTimer = new MonotonicTimer("MQTT Reconnect: " + this.mqttSession.getClientId());
+		reconnectTimer = executorService != null ? new MonotonicTimer(executorService)
+				: new MonotonicTimer("MQTT Reconnect: " + this.mqttSession.getClientId());
 		reconnectTimer.schedule(new ReconnectTask(), reconnectDelay);
 	}
 
