@@ -10,6 +10,8 @@ not an official Eclipse release. It carries the upstream history and adds:
   shutdown (v3).
 - **Delivery fixes** (v3, v5): sequential QoS 1/2 publishes no longer get "Too many publishes in
   progress"; a message without callback or listener is acknowledged instead of redelivered forever.
+- **WebSocket** (v3, v5): pings are answered and fragmented messages reassembled; the idle ping
+  of Mosquitto 2 no longer ends `ws://` connections.
 - **Security fixes** (v3, v5): inbound packets and WebSocket frames are size-limited by default
   (1 MiB) and checked before allocation; no passwords in the log; owner-only file persistence;
   a warning for credentials without TLS; random client ids.

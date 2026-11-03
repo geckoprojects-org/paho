@@ -21,6 +21,7 @@ are.
 | [#9](https://github.com/geckoprojects-org/paho/issues/9) | [#1065](https://github.com/eclipse-paho/paho.mqtt.java/issues/1065) | v3 | A callback waiting for a client operation (e.g. a QoS 1 publish in `messageArrived`) no longer deadlocks the shutdown on connection loss, so the client reconnects. v5 is not affected. |
 | [#10](https://github.com/geckoprojects-org/paho/issues/10) | [#551](https://github.com/eclipse-paho/paho.mqtt.java/issues/551) | v3, v5 | The in-flight slot of a QoS 1/2 publish is freed before the waiting publisher resumes; sequential publishes no longer get "Too many publishes in progress". |
 | [#11](https://github.com/geckoprojects-org/paho/issues/11) | [#828](https://github.com/eclipse-paho/paho.mqtt.java/issues/828) | v3, v5 | A QoS 1/2 message that arrives without callback or message listener (e.g. from a persistent session before `subscribe`) is acknowledged and discarded with a warning, instead of being dropped without PUBACK and redelivered on every connect. |
+| [#31](https://github.com/geckoprojects-org/paho/issues/31) | [#960](https://github.com/eclipse-paho/paho.mqtt.java/issues/960), [#1000](https://github.com/eclipse-paho/paho.mqtt.java/issues/1000) | v3, v5 | The WebSocket transport answers pings with pongs, ignores unsolicited pongs and reassembles fragmented messages (RFC 6455); before, each of them ended the connection, e.g. the idle ping of Mosquitto 2 after about five minutes. The receiver thread writes the pong; all frames go out under one lock. |
 
 ## Behaviour changes for applications
 
