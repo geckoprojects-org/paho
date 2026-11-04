@@ -24,6 +24,24 @@ are.
 | [#31](https://github.com/geckoprojects-org/paho/issues/31) | [#960](https://github.com/eclipse-paho/paho.mqtt.java/issues/960), [#1000](https://github.com/eclipse-paho/paho.mqtt.java/issues/1000) | v3, v5 | The WebSocket transport answers pings with pongs, ignores unsolicited pongs and reassembles fragmented messages (RFC 6455); before, each of them ended the connection, e.g. the idle ping of Mosquitto 2 after about five minutes. The receiver thread writes the pong; all frames go out under one lock. |
 | [#23](https://github.com/geckoprojects-org/paho/issues/23) | – | v3, v5 | With an application `ScheduledExecutorService`, the reconnect delay (v3, v5) and the default keep-alive pings (v3, `pingSender` `null`) run on it instead of a timer thread per client; `close()` leaves the executor running. Without an executor nothing changes. |
 | [#33](https://github.com/geckoprojects-org/paho/issues/33) | – | v5 | When an incoming packet exceeds the Maximum Packet Size, the client sends DISCONNECT with reason code 0x95 (Packet too large) before it closes the connection, as MQTT 5.0 (4.13) recommends; before, it closed the socket without telling the server why. Written on the existing sender, at most 1 s wait, failures ignored. |
+| [#35](https://github.com/geckoprojects-org/paho/issues/35) | – | v3, v5 | The network stream is read through a 512-byte buffer per connection; before, every header byte was a system call of its own (4 reads for a PUBACK, 17 per echoed QoS 2 message). Larger bodies are still read directly into the packet. |
+| [#36](https://github.com/geckoprojects-org/paho/issues/36) | – | v5 | The inbound QoS 2 flow (PUBCOMP created, also on manual acknowledgement) is logged at FINE instead of INFO, the default level of `java.util.logging`; before, every received QoS 2 message wrote a line to the application's log. |
+| [#37](https://github.com/geckoprojects-org/paho/issues/37) | – | v3, v5 | Stopping a network module closes the socket also when a step before fails: v5 `shutdownInput()` on an `SSLSocket` on Java 8, the WebSocket close frame on a broken connection. Before, the file descriptor stayed open until garbage collection. |
+| [#38](https://github.com/geckoprojects-org/paho/issues/38) | – | v5 | A subscribe of a filter that is subscribed already replaces its message listener and subscription identifier; before, every re-subscribe kept the old listener. Removing listeners no longer throws `ConcurrentModificationException` and removes the right subscription identifier; the listener maps are guarded by a lock. |
+| [#39](https://github.com/geckoprojects-org/paho/issues/39) | – | v3, v5 | Messages that leave the offline buffer without being sent (discarded as the oldest, refused because it is full) release their message ID and stored copy, and a buffered message refused with `MAX_INFLIGHT` keeps its ID. Before, each case leaked a message ID (with `cleanSession=false` until all 65,535 were used up) and, in v5, the stored message. |
+| [#40](https://github.com/geckoprojects-org/paho/issues/40) | – | v3 | Sending the offline buffer no longer busy-spins on a full in-flight window (with `maxInflight` 3 or less forever); the drain loop's `MAX_INFLIGHT` handling waits instead. |
+| [#41](https://github.com/geckoprojects-org/paho/issues/41) | – | v3, v5 | An automatic reconnect attempt that succeeds after `disconnect()` was called is disconnected again; before, the client could stay connected and a following `close()` failed. |
+| [#42](https://github.com/geckoprojects-org/paho/issues/42) | – | v3 | `removeMessage()` removes a publish that is still queued; before, it was never found and sent later with a released message ID, and the in-flight count was decremented for it. |
+| [#43](https://github.com/geckoprojects-org/paho/issues/43) | – | v3, v5 | The file persistence closes its streams when writing or reading fails (e.g. a full disk) and the lock file when locking fails (e.g. a second client with the same ID); `get()` no longer loops forever on a truncated file. Before, each failure leaked a file descriptor. |
+| [#44](https://github.com/geckoprojects-org/paho/issues/44) | – | v5 | The outgoing topic alias counter stops at the server's maximum; before, it grew with every publish to a topic without alias and, after 2^31 of them on one connection, produced invalid negative aliases. |
+| [#47](https://github.com/geckoprojects-org/paho/issues/47) | – | v3, v5 | QoS 0 messages restored from the stored offline buffer are forgotten once sent; before, they were queued again on every reconnect and held an in-flight slot each. |
+| [#49](https://github.com/geckoprojects-org/paho/issues/49) | – | v3, v5 | The WebSocket receiver writes a frame's payload to the pipe in one call instead of byte by byte (7 times faster), and the masking keys come from one shared `SecureRandom` instead of a new one per frame. |
+| [#50](https://github.com/geckoprojects-org/paho/issues/50) | – | v5 | An incoming PUBLISH that carries only a topic alias is resolved to its topic; before, it was delivered on the empty topic (and the lookup could never succeed). |
+| [#51](https://github.com/geckoprojects-org/paho/issues/51) | – | v5 | Outgoing topic aliases are applied when the publish is written, and the stored message keeps its topic. Before, a QoS 1/2 publish resent after a reconnect carried only an alias of the old connection; the server closes such a connection, so the client never got a working connection again while the message was in the session. |
+
+Found with the soak scenarios of the load test (#34) and a review for resource leaks, the rows from
+#35 on are about what grows on a device that runs for months: file descriptors, message IDs,
+listeners, stored messages, in-flight slots, system calls and CPU per message.
 
 ## Behaviour changes for applications
 
@@ -63,6 +81,21 @@ What existing application code may notice when switching from upstream 1.2.5:
 - **The file persistence directory is owner-only** (#27). Applications that read it with another
   user need an explicit persistence directory and their own permissions.
 - **`generateClientId()` returns `paho` + 16 hex digits** (#30) instead of `paho` + a time stamp.
+- **v5 logs received QoS 2 messages at FINE** (#36); an application that relied on the INFO line
+  per message has to enable FINE for `org.eclipse.paho.mqttv5.client.internal`.
+- **A subscribe while offline with `persistBuffer=true` is buffered** (#39); v3 threw a
+  `ClassCastException` before, since it tried to store it as a publish. Only publishes are stored.
+- **A reconnect that outlives `disconnect()` is disconnected again** (#41): an application sees a
+  `connectComplete` followed by the disconnect in this rare case, instead of a connected client.
+- **v5 assigns topic aliases per connection when writing** (#51): the token's message keeps its
+  topic; nothing changes for applications that do not set aliases themselves.
+
+## Open, need a decision
+
+| Issue | Clients | Summary |
+|---|---|---|
+| [#45](https://github.com/geckoprojects-org/paho/issues/45) | v3, v5 | An idle client wakes up every second (receiver read timeout of 1 s, a `SocketTimeoutException` each time). Raising it needs a change of the shutdown order (close the socket, then join the receiver). |
+| [#46](https://github.com/geckoprojects-org/paho/issues/46) | v3, v5 | The send queue has no limit while the link stalls (QoS 0 in particular); bounded only in time by keep-alive. Limiting it changes what applications see (`MAX_INFLIGHT`). |
 
 ## Security fixes
 
