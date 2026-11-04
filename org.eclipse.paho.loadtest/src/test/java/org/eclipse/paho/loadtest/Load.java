@@ -15,7 +15,9 @@
  *******************************************************************************/
 package org.eclipse.paho.loadtest;
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.Writer;
@@ -36,6 +38,8 @@ import java.util.function.BooleanSupplier;
 
 import org.junit.Assume;
 
+import com.sun.management.OperatingSystemMXBean;
+
 /**
  * Settings, measurements and the report of the load test. The sizes come from system properties,
  * which the Gradle task {@code loadTest} takes from {@code -Ppaho.load.*}.
@@ -49,6 +53,13 @@ final class Load {
 	static final int MESSAGES = Integer.getInteger("paho.load.messages", QUICK ? 100 : 500);
 	static final int ROUNDS = Integer.getInteger("paho.load.rounds", QUICK ? 1 : 5);
 	static final long TIMEOUT_MS = Long.getLong("paho.load.timeoutMs", 120000);
+	/** Rounds of the soak scenario: publish, subscribe/unsubscribe, reconnect. */
+	static final int SOAK_ROUNDS = Integer.getInteger("paho.load.soakRounds", QUICK ? 8 : 40);
+	static final int SOAK_CLIENTS = Integer.getInteger("paho.load.soakClients", QUICK ? 2 : 4);
+	/** Messages per QoS level, client and soak round. */
+	static final int SOAK_MESSAGES = Integer.getInteger("paho.load.soakMessages", QUICK ? 20 : 50);
+	/** Seconds the soak scenario stays idle at the end to measure CPU time and system calls. */
+	static final int SOAK_IDLE_SECONDS = Integer.getInteger("paho.load.soakIdleSeconds", QUICK ? 5 : 20);
 	/** Longest time all clients may take to reconnect and resubscribe after a drop. */
 	static final long RECONNECT_BOUND_MS = Long.getLong("paho.load.reconnectBoundMs", 30000);
 	/**
@@ -168,6 +179,81 @@ final class Load {
 		} catch (IOException e) {
 			// the report on stdout is enough
 		}
+	}
+
+	/** Open file descriptors of the process (Linux), -1 where unknown. */
+	static int openFileDescriptors() {
+		String[] fds = new File("/proc/self/fd").list();
+		return fds == null ? -1 : fds.length;
+	}
+
+	/**
+	 * I/O counters of the process from /proc/self/io (Linux): rchar, wchar, syscr, syscw; -1 where
+	 * unknown.
+	 */
+	static long[] io() {
+		long[] values = { -1, -1, -1, -1 };
+		String[] keys = { "rchar", "wchar", "syscr", "syscw" };
+		try {
+			BufferedReader reader = new BufferedReader(new FileReader("/proc/self/io"));
+			try {
+				String line;
+				while ((line = reader.readLine()) != null) {
+					for (int i = 0; i < keys.length; i++) {
+						if (line.startsWith(keys[i] + ":")) {
+							values[i] = Long.parseLong(line.substring(keys[i].length() + 1).trim());
+						}
+					}
+				}
+			} finally {
+				reader.close();
+			}
+		} catch (IOException e) {
+			// not Linux
+		}
+		return values;
+	}
+
+	/** CPU time of the process in nanoseconds, -1 where unknown. */
+	static long processCpuNanos() {
+		Object os = ManagementFactory.getOperatingSystemMXBean();
+		return os instanceof OperatingSystemMXBean ? ((OperatingSystemMXBean) os).getProcessCpuTime() : -1;
+	}
+
+	/** Files below the directory, recursively. */
+	static int files(File directory) {
+		File[] entries = directory.listFiles();
+		if (entries == null) {
+			return 0;
+		}
+		int count = 0;
+		for (File entry : entries) {
+			count += entry.isDirectory() ? files(entry) : 1;
+		}
+		return count;
+	}
+
+	/** Least-squares slope of the values from index {@code from} on, per index. */
+	static double slope(long[] values, int from) {
+		int n = values.length - from;
+		if (n < 2) {
+			return 0;
+		}
+		double meanX = 0;
+		double meanY = 0;
+		for (int i = from; i < values.length; i++) {
+			meanX += i;
+			meanY += values[i];
+		}
+		meanX /= n;
+		meanY /= n;
+		double num = 0;
+		double den = 0;
+		for (int i = from; i < values.length; i++) {
+			num += (i - meanX) * (values[i] - meanY);
+			den += (i - meanX) * (i - meanX);
+		}
+		return num / den;
 	}
 
 	static String kib(long bytes) {

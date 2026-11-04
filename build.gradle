@@ -121,7 +121,8 @@ findProject(':org.eclipse.paho.loadtest')?.with {
         if (findProperty('paho.load.quick') != null) {
             systemProperty 'paho.load.quick', findProperty('paho.load.quick') ?: 'true'
         }
-        ['broker', 'clients', 'messages', 'rounds', 'timeoutMs', 'reconnectBoundMs'].each { key ->
+        ['broker', 'clients', 'messages', 'rounds', 'timeoutMs', 'reconnectBoundMs',
+         'soakClients', 'soakRounds', 'soakMessages', 'soakIdleSeconds', 'soakHeapSlopeLimit'].each { key ->
             def value = findProperty("paho.load.${key}")
             if (value != null) {
                 systemProperty "paho.load.${key}", value

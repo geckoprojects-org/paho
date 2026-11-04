@@ -78,17 +78,24 @@ request:
 ```
 
 It covers throughput with QoS 1 and 2, a reconnect storm through a proxy that drops all
-connections, and the same storm with one shared executor, for v3 and v5. Per scenario it reports
+connections, and the same storm with one shared executor, for v3 and v5. The soak scenarios
+(`V3SoakTest`, `V5SoakTest`, issue #34) repeat rounds of publish (QoS 0, 1, 2), subscribe and
+unsubscribe of fresh topics with message listeners and a dropped connection, record heap after GC,
+threads, open file descriptors and persistence files per round, and fail when they keep growing.
+They also report system calls and bytes per message and the CPU time and system calls while idle
+(Linux, from `/proc/self`). Per scenario it reports
 duration, threads and heap per client to `org.eclipse.paho.loadtest/generated/loadtest-report.txt`.
 
 Durations, measured on 16 cores (including Gradle start):
 
 | Command | Sizes | Duration |
 |---|---|---|
-| `./gradlew loadTest -Ppaho.load.quick` | 5 clients, 100 messages, 1 round | about 20 s |
-| `./gradlew loadTest` | 20 clients, 500 messages, 5 rounds | about 70 s |
+| `./gradlew loadTest -Ppaho.load.quick` | 5 clients, 100 messages, 1 round; soak 2 clients x 8 rounds | about 1 min |
+| `./gradlew loadTest` | 20 clients, 500 messages, 5 rounds; soak 4 clients x 40 rounds | about 5.5 min |
+| `./gradlew loadTest --tests '*LoadTest'` | without the soak scenarios | about 70 s (quick: 20 s) |
 
-Sizes given with `-Ppaho.load.clients`, `.messages` or `.rounds` override both defaults; the time
+Sizes given with `-Ppaho.load.clients`, `.messages`, `.rounds`, `.soakClients`, `.soakRounds` or
+`.soakMessages` override both defaults; the time
 grows mainly with the rounds (each storm round waits for all clients to reconnect, about 1.5 s).
 
 `test/stress-tests.sh [runs] [timeFactor]` runs the tests that need no broker repeatedly while

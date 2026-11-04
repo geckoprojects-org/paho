@@ -115,8 +115,9 @@ Not upstream contributions, but different from an upstream build:
   broker in a container, with renewed test certificates (the upstream ones expired in 2018); see
   the README.
 - A load test of both clients (`org.eclipse.paho.loadtest`, `./gradlew loadTest`) against the
-  same broker, on request only (#32): about 70 s with the default sizes, about 20 s with
-  `-Ppaho.load.quick`.
+  same broker, on request only (#32), with soak scenarios that fail when heap, threads, file
+  descriptors or persistence files grow over the rounds (#34): about 5.5 min with the default
+  sizes, about 1 min with `-Ppaho.load.quick`.
 - Upstream modules that are not built here (samples, trace formatter, p2 repositories) are removed.
 
 ## Contributing back
