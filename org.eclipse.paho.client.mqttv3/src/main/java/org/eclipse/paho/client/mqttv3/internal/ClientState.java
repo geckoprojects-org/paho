@@ -20,6 +20,7 @@
  *    Jens Reimann - Fix issue #370
  *    Mark Hoffmann - maximum inbound packet size
  *    Mark Hoffmann - offline buffer releases message IDs and stored messages
+ *    Mark Hoffmann - removeMessage() finds a queued publish
  */
 package org.eclipse.paho.client.mqttv3.internal;
 
@@ -725,7 +726,16 @@ public class ClientState {
 				}
 			}
 			// A message still waiting in pendingMessages was never sent and so never counted in flight.
-			boolean neverSent = pendingMessages.removeElement(message);
+			// The queue holds the MqttPublish, not the MqttMessage of the token: find it by its ID.
+			boolean neverSent = false;
+			for (int i = 0; i < pendingMessages.size(); i++) {
+				MqttWireMessage queued = (MqttWireMessage) pendingMessages.elementAt(i);
+				if (queued instanceof MqttPublish && queued.getMessageId() == messageId) {
+					pendingMessages.removeElementAt(i);
+					neverSent = true;
+					break;
+				}
+			}
 			if (neverSent) {
 				result = true;
 			}
