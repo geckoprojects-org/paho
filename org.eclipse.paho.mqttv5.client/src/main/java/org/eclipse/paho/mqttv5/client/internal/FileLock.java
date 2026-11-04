@@ -12,6 +12,7 @@
  *
  * Contributors:
  *    Dave Locke - initial API and implementation and/or initial documentation
+ *    Mark Hoffmann - streams and lock file closed on errors
  */
 package org.eclipse.paho.mqttv5.client.internal;
 /**
@@ -57,6 +58,11 @@ public class FileLock {
 				this.fileLock = null;
 			} catch(IllegalAccessException iae) {
 				this.fileLock = null;
+			} catch(Exception e) {
+				// tryLock threw, e.g. OverlappingFileLockException: the lock file belongs to the
+				// holder of the lock, only the own handle is closed
+				closeFile();
+				throw e;
 			}
 			if (fileLock == null) {
 				// Lock not obtained
@@ -66,6 +72,16 @@ public class FileLock {
 		}
 	}
 	
+	private void closeFile() {
+		if (file != null) {
+			try {
+				file.close();
+			} catch (IOException e) {
+			}
+			file = null;
+		}
+	}
+
 	/**
 	 * Releases the lock.
 	 */
@@ -79,13 +95,7 @@ public class FileLock {
 		} catch (Exception e) {
 			// Ignore exceptions
 		}
-		if (file != null) {
-			try {
-				file.close();
-			} catch (IOException e) {
-			}
-			file = null;
-		}
+		closeFile();
 
 		if (lockFile != null && lockFile.exists()) {
 			lockFile.delete();
