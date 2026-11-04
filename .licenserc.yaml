@@ -29,6 +29,7 @@ header:
     - 'org.eclipse.paho.mqttv5.client.test/src/**/*.java'
     - 'org.eclipse.paho.loadtest/src/**/*.java'
     - 'cnf/scripts/*.sh'
+    - 'test/*.sh'
     - 'test/broker/*.sh'
 
   # Upstream Paho files that carry no licence header at all (as of upstream develop bd291f15).

@@ -81,6 +81,21 @@ It covers throughput with QoS 1 and 2, a reconnect storm through a proxy that dr
 connections, and the same storm with one shared executor, for v3 and v5. Per scenario it reports
 duration, threads and heap per client to `org.eclipse.paho.loadtest/generated/loadtest-report.txt`.
 
+Durations, measured on 16 cores (including Gradle start):
+
+| Command | Sizes | Duration |
+|---|---|---|
+| `./gradlew loadTest -Ppaho.load.quick` | 5 clients, 100 messages, 1 round | about 20 s |
+| `./gradlew loadTest` | 20 clients, 500 messages, 5 rounds | about 70 s |
+
+Sizes given with `-Ppaho.load.clients`, `.messages` or `.rounds` override both defaults; the time
+grows mainly with the rounds (each storm round waits for all clients to reconnect, about 1.5 s).
+
+`test/stress-tests.sh [runs] [timeFactor]` runs the tests that need no broker repeatedly while
+every core is kept busy and lists the failed tests per run (issue #22). With factor 2 one run
+takes about 2.5 min without load and 3.5 min under load, so the default of 3 runs takes about
+10 min; `test/stress-tests.sh 1` about 3.5 min. `PAHO_STRESS_LOAD=0` leaves out the load.
+
 `test/broker/generate-certs.sh` renews the test certificates and the `clientkeystore.jks` of the test
 modules. Snapshots and releases are built by Jenkins (`Jenkinsfile`); GitHub Actions checks licence
 headers, build and tests.

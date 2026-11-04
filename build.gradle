@@ -101,7 +101,8 @@ brokerTests.each { projectName, testClasses ->
 }
 
 // The load test (org.eclipse.paho.loadtest) runs only on request, against the broker of
-// test/broker/start-broker.sh: ./gradlew loadTest, sizes via -Ppaho.load.clients, .messages, .rounds.
+// test/broker/start-broker.sh: ./gradlew loadTest, sizes via -Ppaho.load.clients, .messages, .rounds,
+// short variant via -Ppaho.load.quick.
 findProject(':org.eclipse.paho.loadtest')?.with {
     test {
         enabled = false
@@ -115,6 +116,10 @@ findProject(':org.eclipse.paho.loadtest')?.with {
         outputs.upToDateWhen { false }
         testLogging {
             showStandardStreams = true
+        }
+        // -Ppaho.load.quick: short variant with smaller default sizes
+        if (findProperty('paho.load.quick') != null) {
+            systemProperty 'paho.load.quick', findProperty('paho.load.quick') ?: 'true'
         }
         ['broker', 'clients', 'messages', 'rounds', 'timeoutMs', 'reconnectBoundMs'].each { key ->
             def value = findProperty("paho.load.${key}")

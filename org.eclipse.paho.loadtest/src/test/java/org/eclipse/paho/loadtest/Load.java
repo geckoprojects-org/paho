@@ -43,9 +43,11 @@ import org.junit.Assume;
 final class Load {
 
 	static final String BROKER = System.getProperty("paho.load.broker", "tcp://localhost:1883");
-	static final int CLIENTS = Integer.getInteger("paho.load.clients", 20);
-	static final int MESSAGES = Integer.getInteger("paho.load.messages", 500);
-	static final int ROUNDS = Integer.getInteger("paho.load.rounds", 5);
+	/** Short variant ({@code -Ppaho.load.quick}): smaller defaults; sizes given explicitly still win. */
+	static final boolean QUICK = Boolean.getBoolean("paho.load.quick");
+	static final int CLIENTS = Integer.getInteger("paho.load.clients", QUICK ? 5 : 20);
+	static final int MESSAGES = Integer.getInteger("paho.load.messages", QUICK ? 100 : 500);
+	static final int ROUNDS = Integer.getInteger("paho.load.rounds", QUICK ? 1 : 5);
 	static final long TIMEOUT_MS = Long.getLong("paho.load.timeoutMs", 120000);
 	/** Longest time all clients may take to reconnect and resubscribe after a drop. */
 	static final long RECONNECT_BOUND_MS = Long.getLong("paho.load.reconnectBoundMs", 30000);
