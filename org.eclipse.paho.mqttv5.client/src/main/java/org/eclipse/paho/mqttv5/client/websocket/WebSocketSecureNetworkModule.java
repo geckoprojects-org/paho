@@ -14,6 +14,7 @@
  *    James Sutton - Bug 459142 - WebSocket support for the Java client.
  *    Mark Hoffmann - bounded WebSocket input
  *    Mark Hoffmann - ping, pong and fragmented frames
+ *    Mark Hoffmann - close the socket when the close frame fails
  */
 package org.eclipse.paho.mqttv5.client.websocket;
 
@@ -91,13 +92,15 @@ public class WebSocketSecureNetworkModule extends SSLNetworkModule{
 	}
 
 	public void stop() throws IOException {
-		// Creating Close Frame
-		outputStream.writeFrame(new WebSocketFrame(WebSocketFrame.OPCODE_CLOSE, true, "1000".getBytes()));
-
-		if(webSocketReceiver != null){
-			webSocketReceiver.stop();
+		try {
+			// Creating Close Frame; fails when the connection is broken already
+			outputStream.writeFrame(new WebSocketFrame(WebSocketFrame.OPCODE_CLOSE, true, "1000".getBytes()));
+		} finally {
+			if (webSocketReceiver != null) {
+				webSocketReceiver.stop();
+			}
+			super.stop();
 		}
-		super.stop();
 	}
 
 	public String getServerURI() {

@@ -12,6 +12,7 @@
  *
  * Contributors:
  *    Dave Locke - initial API and implementation and/or initial documentation
+ *    Mark Hoffmann - close the socket when shutdownInput fails
  */
 package org.eclipse.paho.mqttv5.client.internal;
 
@@ -114,7 +115,12 @@ public class TCPNetworkModule implements NetworkModule {
 			// This workaround should not cause any harm in general but you might
 			// want to move it in SSLNetworkModule.
 
-			socket.shutdownInput();
+			try {
+				socket.shutdownInput();
+			} catch (IOException | UnsupportedOperationException e) {
+				// SSLSocket on Java 8 does not support it, or the input is shut down already;
+				// the socket is closed in any case
+			}
 			socket.close();
 		}
 	}
