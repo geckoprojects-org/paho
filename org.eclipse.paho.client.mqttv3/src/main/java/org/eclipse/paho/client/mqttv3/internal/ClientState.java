@@ -21,6 +21,7 @@
  *    Mark Hoffmann - maximum inbound packet size
  *    Mark Hoffmann - offline buffer releases message IDs and stored messages
  *    Mark Hoffmann - removeMessage() finds a queued publish
+ *    Mark Hoffmann - restored QoS 0 messages sent once
  */
 package org.eclipse.paho.client.mqttv3.internal;
 
@@ -1000,6 +1001,8 @@ public class ClientState {
 			if (((MqttPublish)message).getMessage().getQos() == 0) {
 				// once a QoS 0 message is sent we can clean up its records straight away as
 				// we won't be hearing about it again
+				// a restored one (outboundQoS0) is queued again on every CONNACK otherwise
+				outboundQoS0.remove(Integer.valueOf(message.getMessageId()), message);
 				token.internalTok.markComplete(null, null);
 				callback.asyncOperationComplete(token);
 				decrementInFlight();

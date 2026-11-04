@@ -58,6 +58,7 @@ public class FakeMqttBroker {
 	private final AtomicInteger connects = new AtomicInteger();
 	private final AtomicInteger pings = new AtomicInteger();
 	private final AtomicInteger pubAcks = new AtomicInteger();
+	private final AtomicInteger publishes = new AtomicInteger();
 	private final AtomicInteger nextPacketId = new AtomicInteger();
 	/** Whether to send a QoS 1 PUBLISH right after each CONNACK, see {@link #setPublishOnConnect(String)}. */
 	private volatile String publishOnConnect;
@@ -149,6 +150,11 @@ public class FakeMqttBroker {
 	/** Delays each CONNACK, so that a connect attempt stays under way for a while. */
 	public void setConnackDelay(long millis) {
 		this.connackDelayMillis = millis;
+	}
+
+	/** Number of PUBLISH packets received so far. */
+	public int getPublishCount() {
+		return publishes.get();
 	}
 
 	/** Number of PINGREQ packets received so far. */
@@ -331,6 +337,7 @@ public class FakeMqttBroker {
 					send(0xB0, ack.toByteArray());
 				}
 			} else if (type == PUBLISH) {
+				publishes.incrementAndGet();
 				int qos = (header >> 1) & 0x03;
 				if (qos == 1) {
 					packet.readFully(new byte[packet.readUnsignedShort()]); // topic

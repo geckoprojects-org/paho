@@ -82,6 +82,14 @@ public class BufferedMessageResourcesTest {
 		return buffer;
 	}
 
+	private ClientState state() throws Exception {
+		Field comms = MqttAsyncClient.class.getDeclaredField("comms");
+		comms.setAccessible(true);
+		Field state = ClientComms.class.getDeclaredField("clientState");
+		state.setAccessible(true);
+		return (ClientState) state.get(comms.get(client));
+	}
+
 	private int messageIdsInUse() throws Exception {
 		Field comms = MqttAsyncClient.class.getDeclaredField("comms");
 		comms.setAccessible(true);
@@ -171,5 +179,41 @@ public class BufferedMessageResourcesTest {
 						}
 					}
 				}, 10000));
+	}
+
+	@Test(timeout = 60000)
+	public void testRestoredQos0MessageIsSentOnce() throws Exception {
+		client.setBufferOpts(buffer(10, false));
+		client.connect(options()).waitForCompletion(TestTiming.scaled(5000));
+		goOffline();
+		client.publish("t", new byte[] { 1 }, 0, false);
+		Assert.assertEquals(1, storedBufferedMessages());
+		try {
+			client.disconnectForcibly(0, 100, false);
+		} catch (MqttException e) {
+			// not connected
+		}
+		client.close(true);
+
+		// the next start of the application restores the stored message and sends it
+		broker.setRefusing(false);
+		client = new MqttAsyncClient(broker.getServerURI(), "buffered", new MqttDefaultFilePersistence(folder.getRoot().getAbsolutePath()));
+		client.connect(options()).waitForCompletion(TestTiming.scaled(5000));
+		Assert.assertTrue("restored message not sent", TestTiming.waitFor(new TestTiming.Condition() {
+			public boolean met() {
+				return broker.getPublishCount() == 1;
+			}
+		}, 5000));
+		final int connects = broker.getConnectCount();
+		broker.dropConnections();
+		Assert.assertTrue("no reconnect", TestTiming.waitFor(new TestTiming.Condition() {
+			public boolean met() {
+				return broker.getConnectCount() > connects && client.isConnected();
+			}
+		}, 10000));
+		TestTiming.observe(500);
+		Assert.assertEquals("restored QoS 0 message sent again after the reconnect", 1, broker.getPublishCount());
+		// queued again but skipped by the sender (its token is gone), it would hold an in-flight slot
+		Assert.assertEquals("in-flight slots held", 0, state().getActualInFlight());
 	}
 }
