@@ -145,8 +145,23 @@ public class MqttConnectionState {
 		    this.sharedSubscriptionsAvailable = sharedSubscriptionsAvailable;
 	}
 	
+	/**
+	 * Takes the next free outgoing topic alias.
+	 *
+	 * @return the alias, or 0 when all of the server's aliases are taken; the counter then stops
+	 *         instead of growing with every publish (and overflowing on a long connection)
+	 */
 	public Integer getNextOutgoingTopicAlias() {
-		return nextOutgoingTopicAlias.getAndIncrement();
+		int max = outgoingTopicAliasMaximum.intValue();
+		while (true) {
+			int next = nextOutgoingTopicAlias.get();
+			if (next > max) {
+				return 0;
+			}
+			if (nextOutgoingTopicAlias.compareAndSet(next, next + 1)) {
+				return next;
+			}
+		}
 	}
 
 

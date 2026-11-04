@@ -22,6 +22,7 @@
  *    Mark Hoffmann - maximum inbound packet size
  *    Mark Hoffmann - inbound QoS 2 logged at FINE
  *    Mark Hoffmann - offline buffer releases message IDs and stored messages
+ *    Mark Hoffmann - outgoing topic alias counter bounded
  */
 package org.eclipse.paho.mqttv5.client.internal;
 
@@ -540,7 +541,7 @@ public class ClientState implements MqttState {
 				((MqttPublish) message).setTopicName(null);
 			} else {
 				int nextOutgoingTopicAlias = this.mqttConnection.getNextOutgoingTopicAlias();
-				if (nextOutgoingTopicAlias <= this.mqttConnection.getOutgoingTopicAliasMaximum()) {
+				if (nextOutgoingTopicAlias > 0) {
 					// Create a new Topic Alias and increment the counter
 					((MqttPublish) message).getProperties().setTopicAlias(nextOutgoingTopicAlias);
 					outgoingTopicAliases.put(((MqttPublish) message).getTopicName(), nextOutgoingTopicAlias);
