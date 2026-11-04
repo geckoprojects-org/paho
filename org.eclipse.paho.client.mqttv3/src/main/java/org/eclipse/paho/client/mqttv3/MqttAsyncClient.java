@@ -19,6 +19,7 @@
  *    James Sutton - Automatic Reconnect & Offline Buffering.
  *    Mark Hoffmann - automatic reconnect fixes, warning for credentials without TLS,
  *                    random client ids, timers on the application's executor
+ *    Mark Hoffmann - disconnect after a reconnect that outlived disconnect()
  */
 
 package org.eclipse.paho.client.mqttv3;
@@ -1711,7 +1712,15 @@ public class MqttAsyncClient implements IMqttAsyncClient {
 			// @Trace 501=Automatic Reconnect Successful: {0}
 			log.fine(CLASS_NAME, methodName, "501", new Object[] { asyncActionToken.getClient().getClientId() });
 			comms.setRestingState(false);
+			boolean ended;
+			synchronized (clientLock) {
+				ended = reconnectCycleEnded;
+			}
 			stopReconnectCycle();
+			if (ended) {
+				// disconnect() came while this attempt was under way and could not stop it
+				comms.disconnectAfterReconnect(new MqttDisconnect(), new MqttToken(asyncActionToken.getClient().getClientId()));
+			}
 		}
 
 		public void onFailure(IMqttToken asyncActionToken, Throwable exception) {

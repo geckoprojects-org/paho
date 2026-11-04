@@ -20,6 +20,7 @@
  *    Mark Hoffmann - maximum inbound packet size
  *    Mark Hoffmann - offline buffer releases message IDs and stored messages
  *    Mark Hoffmann - offline buffer sent without busy-spinning
+ *    Mark Hoffmann - disconnect after a reconnect that outlived disconnect()
  */
 package org.eclipse.paho.client.mqttv3.internal;
 
@@ -584,6 +585,25 @@ public class ClientComms {
 			log.fine(CLASS_NAME,methodName,"218");
 			conState = DISCONNECTING;
 			DisconnectBG discbg = new DisconnectBG(disconnect,quiesceTimeout,token, executorService);
+			discbg.start();
+		}
+	}
+
+	/**
+	 * Disconnects after an automatic reconnect attempt that completed although the application
+	 * had disconnected meanwhile. Unlike {@link #disconnect(MqttDisconnect, long, MqttToken)} it may
+	 * run on the callback thread: nothing waits for the token there.
+	 *
+	 * @param disconnect the DISCONNECT to send
+	 * @param token the token of the disconnect
+	 */
+	public void disconnectAfterReconnect(MqttDisconnect disconnect, MqttToken token) {
+		synchronized (conLock) {
+			if (!isConnected()) {
+				return;
+			}
+			conState = DISCONNECTING;
+			DisconnectBG discbg = new DisconnectBG(disconnect, 0, token, executorService);
 			discbg.start();
 		}
 	}

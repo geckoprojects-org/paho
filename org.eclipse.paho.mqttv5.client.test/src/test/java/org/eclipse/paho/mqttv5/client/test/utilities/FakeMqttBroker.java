@@ -62,6 +62,7 @@ public class FakeMqttBroker {
 	/** Whether to send a QoS 1 PUBLISH right after each CONNACK, see {@link #setPublishOnConnect(String)}. */
 	private volatile String publishOnConnect;
 	private volatile boolean answering = true;
+	private volatile long connackDelayMillis;
 	/** Receive Maximum announced in the v5 CONNACK, 0 for none. */
 	private volatile int receiveMaximum;
 	private volatile long pubAckDelayMillis;
@@ -143,6 +144,11 @@ public class FakeMqttBroker {
 	/** Delays each PUBACK, so that publishes stay in flight for a while. */
 	public void setPubAckDelay(long millis) {
 		this.pubAckDelayMillis = millis;
+	}
+
+	/** Delays each CONNACK, so that a connect attempt stays under way for a while. */
+	public void setConnackDelay(long millis) {
+		this.connackDelayMillis = millis;
 	}
 
 	/** Number of PINGREQ packets received so far. */
@@ -266,6 +272,13 @@ public class FakeMqttBroker {
 				packet.readFully(new byte[packet.readUnsignedShort()]); // protocol name
 				protocolLevel = packet.readUnsignedByte();
 				connectNumber = connects.incrementAndGet();
+				if (connackDelayMillis > 0) {
+					try {
+						Thread.sleep(connackDelayMillis);
+					} catch (InterruptedException e) {
+						Thread.currentThread().interrupt();
+					}
+				}
 				if (answering) {
 					connected = true;
 					int max = receiveMaximum;

@@ -14,6 +14,7 @@
  *    James Sutton - initial API and implementation and/or initial documentation
  *    Mark Hoffmann - automatic reconnect fixes, warning for credentials without TLS, timers on the
  *                    application's executor
+ *    Mark Hoffmann - disconnect after a reconnect that outlived disconnect()
  */
 
 package org.eclipse.paho.mqttv5.client;
@@ -1862,7 +1863,20 @@ public class MqttAsyncClient implements MqttClientInterface, IMqttAsyncClient {
 			// @Trace 501=Automatic Reconnect Successful: {0}
 			log.fine(CLASS_NAME, methodName, "501", new Object[] { asyncActionToken.getClient().getClientId() });
 			comms.setRestingState(false);
+			boolean ended;
+			synchronized (clientLock) {
+				ended = reconnectCycleEnded;
+			}
 			stopReconnectCycle();
+			if (ended) {
+				// disconnect() came while this attempt was under way and could not stop it
+				try {
+					comms.disconnectAfterReconnect(new MqttDisconnect(MqttReturnCode.RETURN_CODE_SUCCESS, new MqttProperties()),
+							new MqttToken(asyncActionToken.getClient().getClientId()));
+				} catch (MqttException e) {
+					// not reached: reason code 0 is valid for DISCONNECT
+				}
+			}
 		}
 
 		public void onFailure(IMqttToken asyncActionToken, Throwable exception) {

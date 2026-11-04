@@ -15,6 +15,8 @@
  *******************************************************************************/
 package org.eclipse.paho.client.mqttv3.test.automaticReconnect;
 
+import java.lang.reflect.Field;
+
 import org.eclipse.paho.client.mqttv3.MqttAsyncClient;
 import org.eclipse.paho.client.mqttv3.MqttConnectOptions;
 import org.eclipse.paho.client.mqttv3.MqttException;
@@ -114,8 +116,47 @@ public class ReconnectCycleTest {
 
 		broker.setRefusing(false);
 		TestTiming.observe(QUIET_WINDOW_MS);
-		Assert.assertEquals("reconnect attempts after disconnect()", 1, broker.getConnectCount());
+		// An attempt that had passed its check when disconnect() came may still reach the server; it
+		// is disconnected again (#41), and none follows.
+		Assert.assertTrue("reconnect attempts after disconnect(): " + (broker.getConnectCount() - 1), broker.getConnectCount() <= 2);
 		Assert.assertFalse(client.isConnected());
+	}
+
+	@Test
+	public void testAttemptThatSucceedsAfterDisconnectIsDisconnected() throws Exception {
+		// disconnect() between the check of an attempt and its connect fails (not connected) and
+		// ends the cycle, but the attempt goes on and the server accepts it
+		client = new MqttAsyncClient(broker.getServerURI(), "cycle-disconnect-success", new MemoryPersistence());
+		client.connect(options()).waitForCompletion(TestTiming.scaled(5000));
+		// well within the connection timeout (1 s, not scaled), so that the attempt succeeds
+		broker.setConnackDelay(300);
+		broker.dropConnections();
+		Assert.assertTrue("no reconnect attempt", TestTiming.waitFor(new TestTiming.Condition() {
+			public boolean met() {
+				return broker.getConnectCount() >= 2;
+			}
+		}, 10000));
+		// the attempt waits for its CONNACK; the cycle ends as disconnect() ends it
+		Field ended = MqttAsyncClient.class.getDeclaredField("reconnectCycleEnded");
+		ended.setAccessible(true);
+		synchronized (clientLock()) {
+			ended.setBoolean(client, true);
+		}
+		TestTiming.observe(1000);
+		Assert.assertTrue("connected after disconnect()", TestTiming.waitFor(new TestTiming.Condition() {
+			public boolean met() {
+				return !client.isConnected();
+			}
+		}, 5000));
+		TestTiming.observe(QUIET_WINDOW_MS);
+		Assert.assertEquals("reconnect attempts after the cycle ended", 2, broker.getConnectCount());
+		Assert.assertFalse(client.isConnected());
+	}
+
+	private Object clientLock() throws Exception {
+		Field lock = MqttAsyncClient.class.getDeclaredField("clientLock");
+		lock.setAccessible(true);
+		return lock.get(client);
 	}
 
 	@Test
