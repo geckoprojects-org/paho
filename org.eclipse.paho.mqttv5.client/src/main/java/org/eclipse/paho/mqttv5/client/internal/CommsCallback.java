@@ -16,11 +16,14 @@
  *    Ian Craggs - ack control (bug 472172)
  *    James Sutton - Automatic Reconnect & Offline Buffering
  *    Mark Hoffmann - inbound QoS 2 logged at FINE
+ *    Mark Hoffmann - message listeners replaced on re-subscribe, guarded by a lock
  */
 package org.eclipse.paho.mqttv5.client.internal;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
@@ -60,6 +63,8 @@ public class CommsCallback implements Runnable {
 	private HashMap<Integer, IMqttMessageListener> callbackMap; // Map of message handler callbacks to internal IDs
 	private HashMap<String, Integer> callbackTopicMap; // Map of Topic Strings to internal callback Ids
 	private HashMap<Integer, Integer> subscriptionIdMap; // Map of Subscription Ids to callback Ids
+	/** Guards the three listener maps, changed by application threads and read by the callback thread. */
+	private final Object listenerLock = new Object();
 	private AtomicInteger messageHandlerId = new AtomicInteger(0);
 	private ClientComms clientComms;
 	private ArrayList<MqttPublish> messageQueue;
@@ -375,7 +380,7 @@ public class CommsCallback implements Runnable {
 	 */
 	public void messageArrived(MqttPublish sendMessage) {
 		final String methodName = "messageArrived";
-		if (mqttCallback != null || callbackMap.size() > 0) {
+		if (mqttCallback != null || hasMessageListeners()) {
 			// If we already have enough messages queued up in memory, wait
 			// until some more queue space becomes available. This helps
 			// the client protect itself from getting flooded by messages
@@ -563,12 +568,16 @@ public class CommsCallback implements Runnable {
 	}
 
 	public void setMessageListener(Integer subscriptionId, String topicFilter, IMqttMessageListener messageListener) {
-		int internalId = messageHandlerId.incrementAndGet();
-		this.callbackMap.put(internalId, messageListener);
-		this.callbackTopicMap.put(topicFilter, internalId);
+		synchronized (listenerLock) {
+			// a new subscribe of the filter replaces its listener and subscription identifier
+			removeListenerOfTopic(topicFilter);
+			int internalId = messageHandlerId.incrementAndGet();
+			this.callbackMap.put(internalId, messageListener);
+			this.callbackTopicMap.put(topicFilter, internalId);
 
-		if (subscriptionId != null) {
-			this.subscriptionIdMap.put(subscriptionId, internalId);
+			if (subscriptionId != null) {
+				this.subscriptionIdMap.put(subscriptionId, internalId);
+			}
 		}
 	}
 
@@ -582,16 +591,19 @@ public class CommsCallback implements Runnable {
 	 *            the topic filter that identifies the Message listener to remove.
 	 */
 	public void removeMessageListener(String topicFilter) {
-		Integer callbackId = this.callbackTopicMap.get(topicFilter);
-		this.callbackMap.remove(callbackId);
-		this.callbackTopicMap.remove(topicFilter);
-
-		// Reverse lookup the subscription ID if it exists to remove that as well
-		for (Map.Entry<Integer, Integer> entry : this.subscriptionIdMap.entrySet()) {
-			if (entry.getValue().equals(callbackId)) {
-				this.subscriptionIdMap.remove(entry.getKey());
-			}
+		synchronized (listenerLock) {
+			removeListenerOfTopic(topicFilter);
 		}
+	}
+
+	private void removeListenerOfTopic(String topicFilter) {
+		Integer callbackId = this.callbackTopicMap.remove(topicFilter);
+		if (callbackId == null) {
+			return;
+		}
+		this.callbackMap.remove(callbackId);
+		// Reverse lookup the subscription ID if it exists to remove that as well
+		removeValue(this.subscriptionIdMap, callbackId);
 	}
 
 	/**
@@ -605,48 +617,67 @@ public class CommsCallback implements Runnable {
 	 *            remove.
 	 */
 	public void removeMessageListener(Integer subscriptionId) {
-		Integer callbackId = this.subscriptionIdMap.get(subscriptionId);
-		this.subscriptionIdMap.remove(callbackId);
-		this.callbackMap.remove(callbackId);
+		synchronized (listenerLock) {
+			Integer callbackId = this.subscriptionIdMap.remove(subscriptionId);
+			if (callbackId == null) {
+				return;
+			}
+			this.callbackMap.remove(callbackId);
+			// Reverse lookup the topic if it exists to remove that as well
+			removeValue(this.callbackTopicMap, callbackId);
+		}
+	}
 
-		// Reverse lookup the topic if it exists to remove that as well
-		for (Map.Entry<String, Integer> entry : this.callbackTopicMap.entrySet()) {
-			if (entry.getValue().equals(callbackId)) {
-				this.callbackTopicMap.remove(entry.getKey());
+	private static <K> void removeValue(Map<K, Integer> map, Integer value) {
+		for (Iterator<Map.Entry<K, Integer>> it = map.entrySet().iterator(); it.hasNext();) {
+			if (it.next().getValue().equals(value)) {
+				it.remove();
 			}
 		}
 	}
 
 	public void removeMessageListeners() {
-		this.callbackMap.clear();
-		this.subscriptionIdMap.clear();
-		this.callbackTopicMap.clear();
+		synchronized (listenerLock) {
+			this.callbackMap.clear();
+			this.subscriptionIdMap.clear();
+			this.callbackTopicMap.clear();
+		}
+	}
+
+	private boolean hasMessageListeners() {
+		synchronized (listenerLock) {
+			return !callbackMap.isEmpty();
+		}
 	}
 
 	protected boolean deliverMessage(String topicName, int messageId, MqttMessage aMessage) throws Exception {
 		boolean delivered = false;
 		String methodName = "deliverMessage";
 
-		if (aMessage.getProperties().getSubscriptionIdentifiers().isEmpty()) {
-			// No Subscription IDs, use topic filter matching
-			for (Map.Entry<String, Integer> entry : this.callbackTopicMap.entrySet()) {
-				if (MqttTopicValidator.isMatched(entry.getKey(), topicName)) {
-					aMessage.setId(messageId);
-					this.callbackMap.get(entry.getValue()).messageArrived(topicName, aMessage);
-					delivered = true;
+		// collected under the lock, called outside it: a listener may subscribe or unsubscribe
+		List<IMqttMessageListener> listeners = new ArrayList<>(1);
+		synchronized (listenerLock) {
+			if (aMessage.getProperties().getSubscriptionIdentifiers().isEmpty()) {
+				// No Subscription IDs, use topic filter matching
+				for (Map.Entry<String, Integer> entry : this.callbackTopicMap.entrySet()) {
+					if (MqttTopicValidator.isMatched(entry.getKey(), topicName)) {
+						listeners.add(this.callbackMap.get(entry.getValue()));
+					}
 				}
-			}
-
-		} else {
-			// We have Subscription IDs
-			for (Integer subId : aMessage.getProperties().getSubscriptionIdentifiers()) {
-				if (this.subscriptionIdMap.containsKey(subId)) {
+			} else {
+				// We have Subscription IDs
+				for (Integer subId : aMessage.getProperties().getSubscriptionIdentifiers()) {
 					Integer callbackId = this.subscriptionIdMap.get(subId);
-					aMessage.setId(messageId);
-					this.callbackMap.get(callbackId).messageArrived(topicName, aMessage);
-					delivered = true;
+					if (callbackId != null) {
+						listeners.add(this.callbackMap.get(callbackId));
+					}
 				}
 			}
+		}
+		for (IMqttMessageListener listener : listeners) {
+			aMessage.setId(messageId);
+			listener.messageArrived(topicName, aMessage);
+			delivered = true;
 		}
 
 		/*
@@ -669,7 +700,9 @@ public class CommsCallback implements Runnable {
 	}
 
 	public boolean doesSubscriptionIdentifierExist(int subscriptionIdentifier) {
-		return (this.subscriptionIdMap.containsKey(subscriptionIdentifier));
+		synchronized (listenerLock) {
+			return (this.subscriptionIdMap.containsKey(subscriptionIdentifier));
+		}
 	}
 
 	public boolean isRunning() {
