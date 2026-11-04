@@ -62,6 +62,9 @@ public class FakeMqttBroker {
 	/** Whether to send a QoS 1 PUBLISH right after each CONNACK, see {@link #setPublishOnConnect(String)}. */
 	private volatile String publishOnConnect;
 	private volatile boolean answering = true;
+	/** Receive Maximum announced in the v5 CONNACK, 0 for none. */
+	private volatile int receiveMaximum;
+	private volatile long pubAckDelayMillis;
 	private volatile boolean closed;
 
 	public FakeMqttBroker() throws IOException {
@@ -130,6 +133,16 @@ public class FakeMqttBroker {
 	/** Reason codes of the DISCONNECT packets received so far, 0 for a DISCONNECT without one. */
 	public List<Integer> getDisconnectReasons() {
 		return new ArrayList<Integer>(disconnectReasons);
+	}
+
+	/** Announces a Receive Maximum in the v5 CONNACK; 0 announces none. */
+	public void setReceiveMaximum(int receiveMaximum) {
+		this.receiveMaximum = receiveMaximum;
+	}
+
+	/** Delays each PUBACK, so that publishes stay in flight for a while. */
+	public void setPubAckDelay(long millis) {
+		this.pubAckDelayMillis = millis;
 	}
 
 	/** Number of PINGREQ packets received so far. */
@@ -255,7 +268,14 @@ public class FakeMqttBroker {
 				connectNumber = connects.incrementAndGet();
 				if (answering) {
 					connected = true;
-					send(0x20, protocolLevel == 5 ? new byte[] { 0, 0, 0 } : new byte[] { 0, 0 });
+					int max = receiveMaximum;
+					if (protocolLevel != 5) {
+						send(0x20, new byte[] { 0, 0 });
+					} else if (max > 0) {
+						send(0x20, new byte[] { 0, 0, 3, 0x21, (byte) (max >> 8), (byte) max });
+					} else {
+						send(0x20, new byte[] { 0, 0, 0 });
+					}
 					if (publishOnConnect != null) {
 						sendPublish(publishOnConnect, new byte[] { 'q' }, 1);
 					}
@@ -304,6 +324,13 @@ public class FakeMqttBroker {
 					int packetId = packet.readUnsignedShort();
 					ByteArrayOutputStream ack = new ByteArrayOutputStream();
 					writeShort(ack, packetId);
+					if (pubAckDelayMillis > 0) {
+						try {
+							Thread.sleep(pubAckDelayMillis);
+						} catch (InterruptedException e) {
+							Thread.currentThread().interrupt();
+						}
+					}
 					if (answering) {
 						send(0x40, ack.toByteArray());
 					}

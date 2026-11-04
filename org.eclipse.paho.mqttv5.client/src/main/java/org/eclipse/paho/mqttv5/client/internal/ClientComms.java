@@ -20,6 +20,7 @@ package org.eclipse.paho.mqttv5.client.internal;
  *    James Sutton - Automatic Reconnect & Offline Buffering.
  *    Mark Hoffmann - CONNACK timeout (issue #511)
  *    Mark Hoffmann - DISCONNECT 0x95 on a too large packet
+ *    Mark Hoffmann - offline buffer releases message IDs and stored messages
  */
 import java.util.Enumeration;
 import java.util.Properties;
@@ -139,6 +140,14 @@ public class ClientComms {
 	 * @throws MqttException
 	 */
 	void internalSend(MqttWireMessage message, MqttToken token) throws MqttException {
+		internalSend(message, token, false);
+	}
+
+	/**
+	 * @param buffered true for a message from the offline buffer, which keeps its message ID when
+	 *            it is refused
+	 */
+	private void internalSend(MqttWireMessage message, MqttToken token, boolean buffered) throws MqttException {
 		final String methodName = "internalSend";
 		// @TRACE 200=internalSend key={0} message={1} token={2}
 		log.fine(CLASS_NAME, methodName, "200", new Object[] { message.getKey(), message, token });
@@ -160,7 +169,7 @@ public class ClientComms {
 		} catch (MqttException e) {
 			token.internalTok.setClient(null); // undo client setting on error
 			if (message instanceof MqttPublish) {
-				this.clientState.undo((MqttPublish) message);
+				this.clientState.undo((MqttPublish) message, buffered);
 			}
 			throw e;
 		}
@@ -193,10 +202,7 @@ public class ClientComms {
 					messageProps.setTopicAlias(null);
 					message.setProperties(messageProps);
 				}
-				if (disconnectedMessageBuffer.isPersistBuffer()) {
-					this.clientState.persistBufferedMessage(message);
-				}
-				disconnectedMessageBuffer.putMessage(message, token);
+				bufferMessage(message, token);
 
 			} else {
 
@@ -225,14 +231,34 @@ public class ClientComms {
 			// @TRACE 508=Client Resting, Offline Buffer available. Adding message to
 			// buffer. message={0}
 			log.fine(CLASS_NAME, methodName, "508", new Object[] { message.getKey() });
-			if (disconnectedMessageBuffer.isPersistBuffer()) {
-				this.clientState.persistBufferedMessage(message);
-			}
-			disconnectedMessageBuffer.putMessage(message, token);
+			bufferMessage(message, token);
 		} else {
 			// @TRACE 208=failed: not connected
 			log.fine(CLASS_NAME, methodName, "208");
 			throw ExceptionHelper.createMqttException(MqttClientException.REASON_CODE_CLIENT_NOT_CONNECTED);
+		}
+	}
+
+	/**
+	 * Adds the message to the offline buffer, stored if so configured. A message the buffer refuses
+	 * or discards as the oldest releases what it took.
+	 */
+	private void bufferMessage(MqttWireMessage message, MqttToken token) throws MqttException {
+		boolean stored = disconnectedMessageBuffer.isPersistBuffer() && message instanceof MqttPublish;
+		if (stored) {
+			this.clientState.persistBufferedMessage(message);
+		}
+		BufferedMessage discarded;
+		try {
+			discarded = disconnectedMessageBuffer.putMessage(message, token);
+		} catch (MqttException e) {
+			this.clientState.discardBufferedMessage(message, stored);
+			throw e;
+		}
+		if (discarded != null) {
+			MqttWireMessage old = discarded.getMessage();
+			this.clientState.discardBufferedMessage(old,
+					disconnectedMessageBuffer.isPersistBuffer() && old instanceof MqttPublish);
 		}
 	}
 
@@ -1013,7 +1039,7 @@ public class ClientComms {
 			if (isConnected()) {
 				// @TRACE 510=Publising Buffered message message={0}
 				log.fine(CLASS_NAME, methodName, "510", new Object[] { bufferedMessage.getMessage().getKey() });
-				internalSend(bufferedMessage.getMessage(), bufferedMessage.getToken());
+				internalSend(bufferedMessage.getMessage(), bufferedMessage.getToken(), true);
 				// Delete from persistence if in there
 				clientState.unPersistBufferedMessage(bufferedMessage.getMessage());
 			} else {

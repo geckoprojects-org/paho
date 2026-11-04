@@ -21,6 +21,7 @@
  *    James Sutton - Mqttv5 - Outgoing Topic Aliases
  *    Mark Hoffmann - maximum inbound packet size
  *    Mark Hoffmann - inbound QoS 2 logged at FINE
+ *    Mark Hoffmann - offline buffer releases message IDs and stored messages
  */
 package org.eclipse.paho.mqttv5.client.internal;
 
@@ -333,6 +334,23 @@ public class ClientState implements MqttState {
 		}
 
 		return newList;
+	}
+
+	/**
+	 * Frees what a message holds that leaves the offline buffer without being sent (discarded
+	 * as the oldest, or refused because the buffer is full): its message ID and, if it was stored,
+	 * its stored copy.
+	 *
+	 * @param message the buffered message
+	 * @param stored whether {@link #persistBufferedMessage(MqttWireMessage)} stored it
+	 */
+	public void discardBufferedMessage(MqttWireMessage message, boolean stored) {
+		if (stored) {
+			unPersistBufferedMessage(message);
+		}
+		if (message.getMessageId() != 0) {
+			releaseMessageId(message.getMessageId());
+		}
 	}
 
 	/**
@@ -661,6 +679,18 @@ public class ClientState implements MqttState {
 	 *             if an exception occurs whilst removing the message
 	 */
 	protected void undo(MqttPublish message) throws MqttPersistenceException {
+		undo(message, false);
+	}
+
+	/**
+	 * Removes the message from the outbound queue and persistence.
+	 *
+	 * @param message the {@link MqttPublish} message to be removed
+	 * @param keepMessageId true for a message from the offline buffer: its stored copy is keyed
+	 *            by the message ID, which it keeps for the retry
+	 * @throws MqttPersistenceException if an exception occurs whilst removing the message
+	 */
+	protected void undo(MqttPublish message, boolean keepMessageId) throws MqttPersistenceException {
 		final String methodName = "undo";
 		synchronized (queueLock) {
 			// @TRACE 618=key={0} QoS={1}
@@ -675,7 +705,7 @@ public class ClientState implements MqttState {
 			pendingMessages.removeElement(message);
 			persistence.remove(getSendPersistenceKey(message));
 			tokenStore.removeToken(message);
-			if (message.getMessage().getQos() > 0) {
+			if (message.getMessage().getQos() > 0 && !keepMessageId) {
 				// Free this message Id so it can be used again
 				releaseMessageId(message.getMessageId());
 				// Set the messageId to 0 so if it's ever retried, it will get a new messageId

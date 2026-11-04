@@ -18,6 +18,7 @@
  *    James Sutton - Automatic Reconnect & Offline Buffering.
  *    Mark Hoffmann - CONNACK timeout (issue #511)
  *    Mark Hoffmann - maximum inbound packet size
+ *    Mark Hoffmann - offline buffer releases message IDs and stored messages
  */
 package org.eclipse.paho.client.mqttv3.internal;
 
@@ -147,6 +148,14 @@ public class ClientComms {
 	 * @throws MqttException
 	 */
 	void internalSend(MqttWireMessage message, MqttToken token) throws MqttException {
+		internalSend(message, token, false);
+	}
+
+	/**
+	 * @param buffered true for a message from the offline buffer, which keeps its message ID when
+	 *            it is refused
+	 */
+	private void internalSend(MqttWireMessage message, MqttToken token, boolean buffered) throws MqttException {
 		final String methodName = "internalSend";
 		//@TRACE 200=internalSend key={0} message={1} token={2}
 		log.fine(CLASS_NAME, methodName, "200", new Object[]{message.getKey(), message, token});
@@ -168,7 +177,7 @@ public class ClientComms {
 		} catch(MqttException e) {
 			token.internalTok.setClient(null); // undo client setting on error
 			if (message instanceof MqttPublish) {
-				this.clientState.undo((MqttPublish)message);
+				this.clientState.undo((MqttPublish)message, buffered);
 			}
 			throw e;
 		}
@@ -189,22 +198,14 @@ public class ClientComms {
 			if(disconnectedMessageBuffer != null && disconnectedMessageBuffer.getMessageCount() != 0){
 				//@TRACE 507=Client Connected, Offline Buffer available, but not empty. Adding message to buffer. message={0}
 				log.fine(CLASS_NAME, methodName, "507", new Object[] {message.getKey()});
-				if(disconnectedMessageBuffer.isPersistBuffer()){
-					if (message instanceof MqttPublish) {
-						this.clientState.persistBufferedMessage(message);
-					}
-				}
-				disconnectedMessageBuffer.putMessage(message, token);
+				bufferMessage(message, token);
 			} else {
 				this.internalSend(message, token);
 			}
 		} else if(disconnectedMessageBuffer != null) {
 			//@TRACE 508=Offline Buffer available. Adding message to buffer. message={0}
 			log.fine(CLASS_NAME, methodName, "508", new Object[] {message.getKey()});
-			if(disconnectedMessageBuffer.isPersistBuffer()){
-				this.clientState.persistBufferedMessage(message);
-			}
-			disconnectedMessageBuffer.putMessage(message, token);
+			bufferMessage(message, token);
 		} else {
 			//@TRACE 208=failed: not connected
 			log.fine(CLASS_NAME, methodName, "208");
@@ -220,6 +221,23 @@ public class ClientComms {
 	 */
 	public boolean removeMessage(IMqttDeliveryToken token) throws MqttException {
 		return this.clientState.removeMessage(token);
+	}
+
+	/**
+	 * Adds the message to the offline buffer, stored if so configured. A message the buffer refuses
+	 * releases what it took.
+	 */
+	private void bufferMessage(MqttWireMessage message, MqttToken token) throws MqttException {
+		boolean stored = disconnectedMessageBuffer.isPersistBuffer() && message instanceof MqttPublish;
+		if (stored) {
+			this.clientState.persistBufferedMessage(message);
+		}
+		try {
+			disconnectedMessageBuffer.putMessage(message, token);
+		} catch (MqttException e) {
+			this.clientState.discardBufferedMessage(message, stored);
+			throw e;
+		}
 	}
 
 	/**
@@ -961,9 +979,8 @@ public class ClientComms {
 
 		@Override
 		public void messageDiscarded(MqttWireMessage message) {
-			if(disconnectedMessageBuffer.isPersistBuffer()) {
-				clientState.unPersistBufferedMessage(message);
-			}
+			clientState.discardBufferedMessage(message,
+					disconnectedMessageBuffer.isPersistBuffer() && message instanceof MqttPublish);
 		}
 	}
 
@@ -986,7 +1003,7 @@ public class ClientComms {
 				}
 				//@TRACE 510=Publishing Buffered message message={0}
 				log.fine(CLASS_NAME, methodName, "510", new Object[] {bufferedMessage.getMessage().getKey()});
-				internalSend(bufferedMessage.getMessage(), bufferedMessage.getToken());
+				internalSend(bufferedMessage.getMessage(), bufferedMessage.getToken(), true);
 				
 				// Delete from persistence if in there
 				clientState.unPersistBufferedMessage(bufferedMessage.getMessage());
