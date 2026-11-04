@@ -20,6 +20,7 @@
  *    Jens Reimann - Fix issue #370
  *    James Sutton - Mqttv5 - Outgoing Topic Aliases
  *    Mark Hoffmann - maximum inbound packet size
+ *    Mark Hoffmann - inbound QoS 2 logged at FINE
  */
 package org.eclipse.paho.mqttv5.client.internal;
 
@@ -1163,7 +1164,7 @@ public class ClientState implements MqttState {
 			MqttPubComp pubComp = new MqttPubComp(MqttReturnCode.RETURN_CODE_SUCCESS, pubRel.getMessageId(),
 					new MqttProperties());
 			// @TRACE 668=Creating MqttPubComp: {0}
-			log.info(CLASS_NAME, methodName, "668", new Object[] { pubComp.toString() });
+			log.fine(CLASS_NAME, methodName, "668", new Object[] { pubComp });
 			this.send(pubComp, null);
 		}
 	}

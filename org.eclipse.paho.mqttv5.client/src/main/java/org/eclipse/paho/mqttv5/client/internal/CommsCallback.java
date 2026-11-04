@@ -15,6 +15,7 @@
  *    Ian Craggs - per subscription message handlers (bug 466579)
  *    Ian Craggs - ack control (bug 472172)
  *    James Sutton - Automatic Reconnect & Offline Buffering
+ *    Mark Hoffmann - inbound QoS 2 logged at FINE
  */
 package org.eclipse.paho.mqttv5.client.internal;
 
@@ -518,7 +519,7 @@ public class CommsCallback implements Runnable {
 			this.clientComms.deliveryComplete(messageId);
 			MqttPubComp pubComp = new MqttPubComp(MqttReturnCode.RETURN_CODE_SUCCESS, messageId, new MqttProperties());
 			// @TRACE 723=Creating MqttPubComp due to manual ACK: {0}
-			log.info(CLASS_NAME, "messageArrivedComplete", "723", new Object[] { pubComp.toString() });
+			log.fine(CLASS_NAME, "messageArrivedComplete", "723", new Object[] { pubComp });
 
 			this.clientComms.internalSend(pubComp, new MqttToken(clientComms.getClient().getClientId()));
 		}
