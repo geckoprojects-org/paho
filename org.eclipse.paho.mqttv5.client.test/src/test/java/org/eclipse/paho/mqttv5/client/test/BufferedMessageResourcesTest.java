@@ -118,9 +118,13 @@ public class BufferedMessageResourcesTest {
 
 	private void goOffline() throws Exception {
 		broker.setRefusing(true);
-		Assert.assertTrue("still connected", TestTiming.waitFor(new TestTiming.Condition() {
+		// v5 buffers once the reconnect cycle runs (resting), not right when the connection is lost
+		Field comms = MqttAsyncClient.class.getDeclaredField("comms");
+		comms.setAccessible(true);
+		final ClientComms clientComms = (ClientComms) comms.get(client);
+		Assert.assertTrue("not resting", TestTiming.waitFor(new TestTiming.Condition() {
 			public boolean met() {
-				return !client.isConnected();
+				return !client.isConnected() && clientComms.isResting();
 			}
 		}, 5000));
 	}
