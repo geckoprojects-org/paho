@@ -24,6 +24,7 @@
  *    Mark Hoffmann - offline buffer releases message IDs and stored messages
  *    Mark Hoffmann - outgoing topic alias counter bounded
  *    Mark Hoffmann - restored QoS 0 messages sent once
+ *    Mark Hoffmann - incoming topic aliases resolved
  */
 package org.eclipse.paho.mqttv5.client.internal;
 
@@ -1241,15 +1242,16 @@ public class ClientState implements MqttState {
 
 					}
 
-					// Is this alias being sent with a topic string?
-					if (send.getTopicName() != null) {
+					// Is this alias being sent with a topic string? An alias alone comes with an
+					// empty one (MQTT 5.0, 3.3.2.3.4)
+					if (send.getTopicName() != null && !send.getTopicName().isEmpty()) {
 						// @TRACE 652=Setting Incoming New Topic Alias alias={0}, topicName={1}
 						log.fine(CLASS_NAME, methodName, "652", new Object[] {
 								Integer.valueOf(send.getProperties().getTopicAlias()), send.getTopicName() });
 						incomingTopicAliases.put(send.getProperties().getTopicAlias(), send.getTopicName());
 					} else {
 						// No Topic String, so must be in incomingTopicAliases.
-						if (incomingTopicAliases.contains(incomingTopicAlias)) {
+						if (incomingTopicAliases.containsKey(incomingTopicAlias)) {
 							send.setTopicName(incomingTopicAliases.get(incomingTopicAlias));
 						} else {
 							// @TRACE 654=Unknown Topic Alias: Incoming Alias={1}
