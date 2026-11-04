@@ -60,6 +60,7 @@ public class FakeMqttBroker {
 	/** Whether to send a QoS 1 PUBLISH right after each CONNACK, see {@link #setPublishOnConnect(String)}. */
 	private volatile String publishOnConnect;
 	private volatile boolean answering = true;
+	private volatile long pubAckDelayMillis;
 	private volatile boolean closed;
 
 	public FakeMqttBroker() throws IOException {
@@ -123,6 +124,11 @@ public class FakeMqttBroker {
 	 */
 	public void setPublishOnConnect(String topic) {
 		this.publishOnConnect = topic;
+	}
+
+	/** Delays each PUBACK, so that publishes stay in flight for a while. */
+	public void setPubAckDelay(long millis) {
+		this.pubAckDelayMillis = millis;
 	}
 
 	/** Number of PINGREQ packets received so far. */
@@ -297,6 +303,13 @@ public class FakeMqttBroker {
 					int packetId = packet.readUnsignedShort();
 					ByteArrayOutputStream ack = new ByteArrayOutputStream();
 					writeShort(ack, packetId);
+					if (pubAckDelayMillis > 0) {
+						try {
+							Thread.sleep(pubAckDelayMillis);
+						} catch (InterruptedException e) {
+							Thread.currentThread().interrupt();
+						}
+					}
 					if (answering) {
 						send(0x40, ack.toByteArray());
 					}

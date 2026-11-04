@@ -19,6 +19,7 @@
  *    Mark Hoffmann - CONNACK timeout (issue #511)
  *    Mark Hoffmann - maximum inbound packet size
  *    Mark Hoffmann - offline buffer releases message IDs and stored messages
+ *    Mark Hoffmann - offline buffer sent without busy-spinning
  */
 package org.eclipse.paho.client.mqttv3.internal;
 
@@ -995,12 +996,8 @@ public class ClientComms {
 		
 		public void publishBufferedMessage(BufferedMessage bufferedMessage) throws MqttException {
 			if (isConnected()) {
-				// First pass at making sure that we don't flood the in-flight messages
-				while(clientState.getActualInFlight() >= (clientState.getMaxInFlight()-3)){
-					// We need to Yield to the other threads to allow the in flight messages to clear
-					Thread.yield();
-					
-				}
+				// A full in-flight window is reported as MAX_INFLIGHT; the drain loop waits and
+				// tries again, the message keeps its ID
 				//@TRACE 510=Publishing Buffered message message={0}
 				log.fine(CLASS_NAME, methodName, "510", new Object[] {bufferedMessage.getMessage().getKey()});
 				internalSend(bufferedMessage.getMessage(), bufferedMessage.getToken(), true);

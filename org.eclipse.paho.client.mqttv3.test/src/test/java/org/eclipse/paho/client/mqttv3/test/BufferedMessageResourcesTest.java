@@ -146,4 +146,30 @@ public class BufferedMessageResourcesTest {
 		Assert.assertEquals("message IDs in use", 2, messageIdsInUse());
 		Assert.assertEquals("stored buffered messages", 2, storedBufferedMessages());
 	}
+
+	@Test(timeout = 60000)
+	public void testBufferIsSentWithASmallInflightWindow() throws Exception {
+		// in-flight window of 3, PUBACKs slow: the buffer hits the window while it is sent
+		broker.setPubAckDelay(50);
+		client.setBufferOpts(buffer(10, false));
+		MqttConnectOptions options = options();
+		options.setMaxInflight(3);
+		client.connect(options).waitForCompletion(TestTiming.scaled(5000));
+		goOffline();
+		for (int i = 0; i < 6; i++) {
+			client.publish("t", new byte[] { (byte) i }, 1, false);
+		}
+		Assert.assertEquals(6, storedBufferedMessages());
+		broker.setRefusing(false);
+		Assert.assertTrue("buffered messages left: " + storedBufferedMessages() + ", message IDs in use: " + messageIdsInUse(),
+				TestTiming.waitFor(new TestTiming.Condition() {
+					public boolean met() {
+						try {
+							return storedBufferedMessages() == 0 && messageIdsInUse() == 0;
+						} catch (Exception e) {
+							throw new IllegalStateException(e);
+						}
+					}
+				}, 10000));
+	}
 }
