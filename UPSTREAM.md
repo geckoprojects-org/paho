@@ -23,6 +23,7 @@ are.
 | [#11](https://github.com/geckoprojects-org/paho/issues/11) | [#828](https://github.com/eclipse-paho/paho.mqtt.java/issues/828) | v3, v5 | A QoS 1/2 message that arrives without callback or message listener (e.g. from a persistent session before `subscribe`) is acknowledged and discarded with a warning, instead of being dropped without PUBACK and redelivered on every connect. |
 | [#31](https://github.com/geckoprojects-org/paho/issues/31) | [#960](https://github.com/eclipse-paho/paho.mqtt.java/issues/960), [#1000](https://github.com/eclipse-paho/paho.mqtt.java/issues/1000) | v3, v5 | The WebSocket transport answers pings with pongs, ignores unsolicited pongs and reassembles fragmented messages (RFC 6455); before, each of them ended the connection, e.g. the idle ping of Mosquitto 2 after about five minutes. The receiver thread writes the pong; all frames go out under one lock. |
 | [#23](https://github.com/geckoprojects-org/paho/issues/23) | – | v3, v5 | With an application `ScheduledExecutorService`, the reconnect delay (v3, v5) and the default keep-alive pings (v3, `pingSender` `null`) run on it instead of a timer thread per client; `close()` leaves the executor running. Without an executor nothing changes. |
+| [#33](https://github.com/geckoprojects-org/paho/issues/33) | – | v5 | When an incoming packet exceeds the Maximum Packet Size, the client sends DISCONNECT with reason code 0x95 (Packet too large) before it closes the connection, as MQTT 5.0 (4.13) recommends; before, it closed the socket without telling the server why. Written on the existing sender, at most 1 s wait, failures ignored. |
 
 ## Behaviour changes for applications
 
@@ -52,6 +53,8 @@ What existing application code may notice when switching from upstream 1.2.5:
   `MqttConnectionOptions.setMaximumPacketSize` (v5; `null` for none). v5 announces the limit in
   CONNECT, so the broker drops larger messages instead of sending them. v3 cannot announce it: a
   broker that keeps such a message for the client sends it again after every reconnect.
+  v5 sends DISCONNECT 0x95 before it closes the connection (#33); as before, the broker then
+  publishes the will message.
 - **v5: `maximumPacketSize` limits what the client receives, the server's limit what it sends**
   (#24). Upstream checked outgoing packets against the client's own option and inbound packets
   against the server's.
@@ -60,12 +63,6 @@ What existing application code may notice when switching from upstream 1.2.5:
 - **The file persistence directory is owner-only** (#27). Applications that read it with another
   user need an explicit persistence directory and their own permissions.
 - **`generateClientId()` returns `paho` + 16 hex digits** (#30) instead of `paho` + a time stamp.
-
-## Planned
-
-| Issue | Upstream | Clients | Summary |
-|---|---|---|---|
-| [#23](https://github.com/geckoprojects-org/paho/issues/23) | – | v3, v5 | Use the application's `ScheduledExecutorService` for the reconnect timer (and the v3 pings) instead of a thread per client. |
 
 ## Security fixes
 
@@ -112,11 +109,14 @@ Not upstream contributions, but different from an upstream build:
   Central.
 - Tests that need no broker run in every build, against an in-process `FakeMqttBroker` that can
   go silent, refuse connections or drop them; their waits scale with `-Ppaho.test.timeFactor`
-  (CI: 2). The upstream broker tests run with `./gradlew brokerTest` against a Mosquitto 2 test
+  (CI: 2). Under full CPU load they are stable with factor 1 and 2 (#22: 40 runs measured, the
+  two races found fixed); `test/stress-tests.sh` repeats the check, about 10 min for 3 runs. The
+  upstream broker tests run with `./gradlew brokerTest` against a Mosquitto 2 test
   broker in a container, with renewed test certificates (the upstream ones expired in 2018); see
   the README.
 - A load test of both clients (`org.eclipse.paho.loadtest`, `./gradlew loadTest`) against the
-  same broker, on request only (#32).
+  same broker, on request only (#32): about 70 s with the default sizes, about 20 s with
+  `-Ppaho.load.quick`.
 - Upstream modules that are not built here (samples, trace formatter, p2 repositories) are removed.
 
 ## Contributing back
