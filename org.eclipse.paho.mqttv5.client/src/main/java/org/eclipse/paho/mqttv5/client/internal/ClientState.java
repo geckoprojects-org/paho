@@ -25,6 +25,7 @@
  *    Mark Hoffmann - outgoing topic alias counter bounded
  *    Mark Hoffmann - restored QoS 0 messages sent once
  *    Mark Hoffmann - incoming topic aliases resolved
+ *    Mark Hoffmann - outgoing topic aliases applied when written
  */
 package org.eclipse.paho.mqttv5.client.internal;
 
@@ -519,6 +520,42 @@ public class ClientState implements MqttState {
 		this.pendingMessages = reOrder(pendingMessages);
 	}
 
+	/**
+	 * Applies the topic alias of the current connection to a publish that is about to be written: a
+	 * new alias goes out with the topic, a known one replaces it. The stored message keeps its
+	 * topic, since aliases are only valid on the connection that set them (a publish resent after a
+	 * reconnect needs its topic again); the caller puts the returned topic back after the write.
+	 *
+	 * @param message the message about to be written
+	 * @return the topic taken off the message for the write, or null
+	 */
+	String applyOutgoingTopicAlias(MqttWireMessage message) {
+		if (!(message instanceof MqttPublish) || this.mqttConnection == null
+				|| this.mqttConnection.getOutgoingTopicAliasMaximum() <= 0) {
+			return null;
+		}
+		MqttPublish publish = (MqttPublish) message;
+		String topic = publish.getTopicName();
+		if (topic == null || topic.isEmpty()) {
+			return null;
+		}
+		Integer alias = outgoingTopicAliases.get(topic);
+		if (alias != null) {
+			publish.getProperties().setTopicAlias(alias);
+			publish.setTopicName(null);
+			return topic;
+		}
+		int next = this.mqttConnection.getNextOutgoingTopicAlias();
+		if (next > 0) {
+			publish.getProperties().setTopicAlias(next);
+			outgoingTopicAliases.put(topic, next);
+		} else {
+			// all aliases taken; one from an earlier connection is not valid here
+			publish.getProperties().setTopicAlias(null);
+		}
+		return null;
+	}
+
 	/*
 	 * (non-Javadoc)
 	 * 
@@ -533,23 +570,8 @@ public class ClientState implements MqttState {
 		if (message.isMessageIdRequired() && (message.getMessageId() == 0)) {
 			message.setMessageId(getNextMessageId());
 		}
-		// Set Topic Alias if required
-		if (message instanceof MqttPublish && ((MqttPublish) message).getTopicName() != null 
-	        		&& this.mqttConnection != null && this.mqttConnection.getOutgoingTopicAliasMaximum() > 0) {
-                        String topic = ((MqttPublish) message).getTopicName();
-			if (outgoingTopicAliases.containsKey(topic)) {
-				// Existing Topic Alias, Assign it and remove the topic string
-				((MqttPublish) message).getProperties().setTopicAlias(outgoingTopicAliases.get(topic));
-				((MqttPublish) message).setTopicName(null);
-			} else {
-				int nextOutgoingTopicAlias = this.mqttConnection.getNextOutgoingTopicAlias();
-				if (nextOutgoingTopicAlias > 0) {
-					// Create a new Topic Alias and increment the counter
-					((MqttPublish) message).getProperties().setTopicAlias(nextOutgoingTopicAlias);
-					outgoingTopicAliases.put(((MqttPublish) message).getTopicName(), nextOutgoingTopicAlias);
-				}
-			}
-		}
+		// Topic aliases are applied when the publish is written (applyOutgoingTopicAlias): they
+		// belong to the network connection, the stored message keeps its topic
 
 		if (token != null) {
 			try {

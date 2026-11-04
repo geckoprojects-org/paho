@@ -12,6 +12,7 @@
  *
  * Contributors:
  *    Dave Locke - initial API and implementation and/or initial documentation
+ *    Mark Hoffmann - outgoing topic aliases applied when written
  */
 package org.eclipse.paho.mqttv5.client.internal;
 
@@ -28,6 +29,7 @@ import org.eclipse.paho.mqttv5.client.wire.MqttOutputStream;
 import org.eclipse.paho.mqttv5.common.MqttException;
 import org.eclipse.paho.mqttv5.common.packet.MqttAck;
 import org.eclipse.paho.mqttv5.common.packet.MqttDisconnect;
+import org.eclipse.paho.mqttv5.common.packet.MqttPublish;
 import org.eclipse.paho.mqttv5.common.packet.MqttWireMessage;
 
 
@@ -142,7 +144,14 @@ public class CommsSender implements Runnable {
 							// while trying to send a message.
 							if (token != null) {
 								synchronized (token) {
-									out.write(message);
+									String topic = clientState.applyOutgoingTopicAlias(message);
+									try {
+										out.write(message);
+									} finally {
+										if (topic != null) {
+											((MqttPublish) message).setTopicName(topic);
+										}
+									}
 									try {
 										out.flush();
 									} catch (IOException ex) {

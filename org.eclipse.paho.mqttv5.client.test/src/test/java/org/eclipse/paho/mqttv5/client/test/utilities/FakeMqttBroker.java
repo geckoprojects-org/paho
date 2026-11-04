@@ -66,6 +66,11 @@ public class FakeMqttBroker {
 	private volatile long connackDelayMillis;
 	/** Receive Maximum announced in the v5 CONNACK, 0 for none. */
 	private volatile int receiveMaximum;
+	/** Topic Alias Maximum announced in the v5 CONNACK, 0 for none. */
+	private volatile int topicAliasMaximum;
+	private volatile boolean ackingPublishes = true;
+	/** "topic|alias" of every v5 PUBLISH received, alias 0 for none. */
+	private final List<String> publishedTopics = new CopyOnWriteArrayList<String>();
 	private volatile long pubAckDelayMillis;
 	private volatile boolean closed;
 
@@ -140,6 +145,21 @@ public class FakeMqttBroker {
 	/** Announces a Receive Maximum in the v5 CONNACK; 0 announces none. */
 	public void setReceiveMaximum(int receiveMaximum) {
 		this.receiveMaximum = receiveMaximum;
+	}
+
+	/** Announces a Topic Alias Maximum in the v5 CONNACK; 0 announces none. */
+	public void setTopicAliasMaximum(int topicAliasMaximum) {
+		this.topicAliasMaximum = topicAliasMaximum;
+	}
+
+	/** When false, QoS 1 publishes are not acknowledged, so they stay in flight. */
+	public void setAckingPublishes(boolean ackingPublishes) {
+		this.ackingPublishes = ackingPublishes;
+	}
+
+	/** "topic|alias" of every v5 PUBLISH received so far, alias 0 for none. */
+	public List<String> getPublishedTopics() {
+		return new ArrayList<String>(publishedTopics);
 	}
 
 	/** Delays each PUBACK, so that publishes stay in flight for a while. */
@@ -287,13 +307,24 @@ public class FakeMqttBroker {
 				}
 				if (answering) {
 					connected = true;
-					int max = receiveMaximum;
 					if (protocolLevel != 5) {
 						send(0x20, new byte[] { 0, 0 });
-					} else if (max > 0) {
-						send(0x20, new byte[] { 0, 0, 3, 0x21, (byte) (max >> 8), (byte) max });
 					} else {
-						send(0x20, new byte[] { 0, 0, 0 });
+						ByteArrayOutputStream props = new ByteArrayOutputStream();
+						if (receiveMaximum > 0) {
+							props.write(0x21);
+							writeShort(props, receiveMaximum);
+						}
+						if (topicAliasMaximum > 0) {
+							props.write(0x22);
+							writeShort(props, topicAliasMaximum);
+						}
+						ByteArrayOutputStream connack = new ByteArrayOutputStream();
+						connack.write(0);
+						connack.write(0);
+						connack.write(props.size());
+						connack.write(props.toByteArray());
+						send(0x20, connack.toByteArray());
 					}
 					if (publishOnConnect != null) {
 						sendPublish(publishOnConnect, new byte[] { 'q' }, 1);
@@ -339,9 +370,27 @@ public class FakeMqttBroker {
 			} else if (type == PUBLISH) {
 				publishes.incrementAndGet();
 				int qos = (header >> 1) & 0x03;
-				if (qos == 1) {
-					packet.readFully(new byte[packet.readUnsignedShort()]); // topic
-					int packetId = packet.readUnsignedShort();
+				byte[] topic = new byte[packet.readUnsignedShort()];
+				packet.readFully(topic);
+				int packetId = qos > 0 ? packet.readUnsignedShort() : 0;
+				int alias = 0;
+				if (protocolLevel == 5) {
+					int remaining = readVariableInt(packet);
+					while (remaining > 0) {
+						int id = packet.readUnsignedByte();
+						remaining--;
+						if (id == 0x23) { // topic alias
+							alias = packet.readUnsignedShort();
+							remaining -= 2;
+						} else {
+							// the client sends no other properties in these tests
+							packet.readFully(new byte[remaining]);
+							remaining = 0;
+						}
+					}
+					publishedTopics.add(new String(topic, StandardCharsets.UTF_8) + "|" + alias);
+				}
+				if (qos == 1 && ackingPublishes) {
 					ByteArrayOutputStream ack = new ByteArrayOutputStream();
 					writeShort(ack, packetId);
 					if (pubAckDelayMillis > 0) {
