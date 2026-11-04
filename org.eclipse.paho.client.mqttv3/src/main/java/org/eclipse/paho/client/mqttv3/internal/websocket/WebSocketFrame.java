@@ -14,6 +14,7 @@
  *    James Sutton - Bug 459142 - WebSocket support for the Java client.
  *    Mark Hoffmann - bounded WebSocket input
  *    Mark Hoffmann - ping, pong and fragmented frames
+ *    Mark Hoffmann - bulk pipe writes, one SecureRandom for the masking keys
  */
 package org.eclipse.paho.client.mqttv3.internal.websocket;
 
@@ -24,6 +25,9 @@ import java.nio.ByteBuffer;
 import java.security.SecureRandom;
 
 public class WebSocketFrame {
+
+	/** Source of the masking keys; one for all frames, SecureRandom is thread-safe. */
+	private static final SecureRandom MASKING_KEYS = new SecureRandom();
 
 	/**
 	 * The largest payload of an inbound frame unless the client sets a lower
@@ -364,12 +368,9 @@ public class WebSocketFrame {
 	 * @return ByteArray containing the key;
 	 */
 	public static byte[] generateMaskingKey() {
-		SecureRandom secureRandomGenerator = new SecureRandom();
-		int a = secureRandomGenerator.nextInt(255);
-		int b = secureRandomGenerator.nextInt(255);
-		int c = secureRandomGenerator.nextInt(255);
-		int d = secureRandomGenerator.nextInt(255);
-		return new byte[] { (byte) a, (byte) b, (byte) c, (byte) d };
+		byte[] key = new byte[4];
+		MASKING_KEYS.nextBytes(key);
+		return key;
 	}
 
 }

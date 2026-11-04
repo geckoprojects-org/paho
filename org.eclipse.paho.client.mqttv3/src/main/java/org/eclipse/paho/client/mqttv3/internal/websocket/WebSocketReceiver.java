@@ -14,6 +14,7 @@
  *    James Sutton - Bug 459142 - WebSocket support for the Java client.
  *    Mark Hoffmann - bounded WebSocket input
  *    Mark Hoffmann - ping, pong and fragmented frames
+ *    Mark Hoffmann - bulk pipe writes, one SecureRandom for the masking keys
  */
 package org.eclipse.paho.client.mqttv3.internal.websocket;
 
@@ -152,9 +153,8 @@ public class WebSocketReceiver implements Runnable{
 								: "Invalid Frame: continuation without a fragmented message");
 					}
 					fragmented = !incomingFrame.isFin();
-					for(int i = 0; i < incomingFrame.getPayload().length; i++){
-						pipedOutputStream.write(incomingFrame.getPayload()[i]);
-					}
+					// in one call: write(int) takes the pipe's lock and wakes the reader per byte
+					pipedOutputStream.write(incomingFrame.getPayload());
 					pipedOutputStream.flush();
 				}
 
