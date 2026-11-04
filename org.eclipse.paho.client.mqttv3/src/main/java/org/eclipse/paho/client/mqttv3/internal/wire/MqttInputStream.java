@@ -13,9 +13,11 @@
  * Contributors:
  *    Dave Locke - initial API and implementation and/or initial documentation
  *    Mark Hoffmann - maximum inbound packet size
+ *    Mark Hoffmann - buffered reads
  */
 package org.eclipse.paho.client.mqttv3.internal.wire;
 
+import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.EOFException;
@@ -39,6 +41,8 @@ public class MqttInputStream extends InputStream {
 	private final Logger log = LoggerFactory.getLogger(LoggerFactory.MQTT_CLIENT_MSG_CAT, CLASS_NAME);
 
 	private ClientState clientState = null;
+	/** Read buffer per connection; larger packet bodies are read directly into the packet array. */
+	private static final int BUFFER_SIZE = 512;
 	private DataInputStream in;	
 	private ByteArrayOutputStream bais;
 	private int remLen;
@@ -47,7 +51,9 @@ public class MqttInputStream extends InputStream {
 
 	public MqttInputStream(ClientState clientState, InputStream in) {
 		this.clientState = clientState;
-		this.in = new DataInputStream(in);		
+		// buffered: the header and the remaining length are read byte by byte, each a system call
+		// on the socket stream otherwise
+		this.in = new DataInputStream(new BufferedInputStream(in, BUFFER_SIZE));		
 		this.bais = new ByteArrayOutputStream();
 		this.remLen = -1;
 	}
