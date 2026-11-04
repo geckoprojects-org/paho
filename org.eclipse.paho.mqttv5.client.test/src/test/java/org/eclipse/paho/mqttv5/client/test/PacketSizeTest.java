@@ -18,6 +18,7 @@ package org.eclipse.paho.mqttv5.client.test;
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
+import java.util.Collections;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -34,6 +35,7 @@ import org.eclipse.paho.mqttv5.common.MqttException;
 import org.eclipse.paho.mqttv5.common.MqttMessage;
 import org.eclipse.paho.mqttv5.common.packet.MqttDataTypes;
 import org.eclipse.paho.mqttv5.common.packet.MqttProperties;
+import org.eclipse.paho.mqttv5.common.packet.MqttReturnCode;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -125,6 +127,21 @@ public class PacketSizeTest {
 		// check the client allocates 256 MiB and waits for the body.
 		broker.sendRaw(new byte[] { 0x30, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, 0x7F });
 		assertLostWith(MqttClientException.REASON_CODE_INCOMING_PACKET_TOO_LARGE);
+	}
+
+	@Test
+	public void testTooLargePacketIsAnsweredWithDisconnect0x95() throws Exception {
+		connect(new MqttConnectionOptions());
+		broker.sendRaw(new byte[] { 0x30, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, 0x7F });
+		assertLostWith(MqttClientException.REASON_CODE_INCOMING_PACKET_TOO_LARGE);
+		// MQTT 5.0, 4.13: the client tells the server why it closes the connection
+		Assert.assertTrue("no DISCONNECT", TestTiming.waitFor(new TestTiming.Condition() {
+			public boolean met() {
+				return !broker.getDisconnectReasons().isEmpty();
+			}
+		}, 5000));
+		Assert.assertEquals(Collections.singletonList(Integer.valueOf(MqttReturnCode.RETURN_CODE_PACKET_TOO_LARGE)),
+				broker.getDisconnectReasons());
 	}
 
 	@Test

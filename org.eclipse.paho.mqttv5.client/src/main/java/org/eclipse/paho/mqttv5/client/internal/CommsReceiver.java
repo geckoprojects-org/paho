@@ -13,6 +13,7 @@
  * Contributors:
  *    Dave Locke - initial API and implementation and/or initial documentation
  *    Mark Hoffmann - CONNACK timeout (issue #511)
+ *    Mark Hoffmann - DISCONNECT 0x95 on a too large packet
  */
 package org.eclipse.paho.mqttv5.client.internal;
 
@@ -29,6 +30,7 @@ import org.eclipse.paho.mqttv5.client.wire.MqttInputStream;
 import org.eclipse.paho.mqttv5.common.MqttException;
 import org.eclipse.paho.mqttv5.common.packet.MqttAck;
 import org.eclipse.paho.mqttv5.common.packet.MqttDisconnect;
+import org.eclipse.paho.mqttv5.common.packet.MqttReturnCode;
 import org.eclipse.paho.mqttv5.common.packet.MqttWireMessage;
 
 /**
@@ -36,6 +38,8 @@ import org.eclipse.paho.mqttv5.common.packet.MqttWireMessage;
  */
 public class CommsReceiver implements Runnable {
 	private static final String CLASS_NAME = CommsReceiver.class.getName();
+	/** Longest time the receiver waits for the DISCONNECT 0x95 to be written before it closes the connection. */
+	private static final long DISCONNECT_WRITE_TIMEOUT_MS = 1000;
 	private Logger log = LoggerFactory.getLogger(LoggerFactory.MQTT_CLIENT_MSG_CAT, CLASS_NAME);
 
 	private enum State {STOPPED, RUNNING, STARTING, RECEIVING}
@@ -183,6 +187,10 @@ public class CommsReceiver implements Runnable {
 					log.fine(CLASS_NAME, methodName, "856", null, ex);
 					synchronized (lifecycle) {
 						target_state = State.STOPPED;
+					}
+					if (ex.getReasonCode() == MqttClientException.REASON_CODE_INCOMING_PACKET_TOO_LARGE) {
+						clientComms.sendDisconnectBeforeClosing(MqttReturnCode.RETURN_CODE_PACKET_TOO_LARGE,
+								DISCONNECT_WRITE_TIMEOUT_MS);
 					}
 					// Token maybe null but that is handled in shutdown
 					clientComms.shutdownConnection(token, ex, null);

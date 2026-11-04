@@ -53,6 +53,8 @@ public class FakeMqttBroker {
 	private final List<Connection> connections = new CopyOnWriteArrayList<Connection>();
 	/** Entries "connectNumber:topicFilter", one per filter in each SUBSCRIBE. */
 	private final List<String> subscriptions = new CopyOnWriteArrayList<String>();
+	/** Reason codes of the DISCONNECT packets received, 0 when the packet has none. */
+	private final List<Integer> disconnectReasons = new CopyOnWriteArrayList<Integer>();
 	private final AtomicInteger connects = new AtomicInteger();
 	private final AtomicInteger pings = new AtomicInteger();
 	private final AtomicInteger pubAcks = new AtomicInteger();
@@ -123,6 +125,11 @@ public class FakeMqttBroker {
 	 */
 	public void setPublishOnConnect(String topic) {
 		this.publishOnConnect = topic;
+	}
+
+	/** Reason codes of the DISCONNECT packets received so far, 0 for a DISCONNECT without one. */
+	public List<Integer> getDisconnectReasons() {
+		return new ArrayList<Integer>(disconnectReasons);
 	}
 
 	/** Number of PINGREQ packets received so far. */
@@ -309,6 +316,7 @@ public class FakeMqttBroker {
 					send(0xD0, new byte[0]);
 				}
 			} else if (type == DISCONNECT) {
+				disconnectReasons.add(Integer.valueOf(length > 0 ? packet.readUnsignedByte() : 0));
 				close();
 			}
 		}

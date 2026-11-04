@@ -19,6 +19,7 @@ package org.eclipse.paho.mqttv5.client.internal;
  *    James Sutton - checkForActivity Token (bug 473928)
  *    James Sutton - Automatic Reconnect & Offline Buffering.
  *    Mark Hoffmann - CONNACK timeout (issue #511)
+ *    Mark Hoffmann - DISCONNECT 0x95 on a too large packet
  */
 import java.util.Enumeration;
 import java.util.Properties;
@@ -618,6 +619,32 @@ public class ClientComms {
 		} finally {
 			token.internalTok.markComplete(null, null);
 			shutdownConnection(token, null, null);
+		}
+	}
+
+	/**
+	 * Tells the server why the client closes the connection itself (MQTT 5.0, 4.13): sends a
+	 * DISCONNECT with the reason code on the existing sender, best effort. Waits at most
+	 * {@code timeoutMillis} for it to be written and ignores any failure, as the connection is
+	 * closed afterwards anyway.
+	 *
+	 * @param reasonCode
+	 *            the reason code of the DISCONNECT
+	 * @param timeoutMillis
+	 *            the longest time to wait for the write
+	 */
+	void sendDisconnectBeforeClosing(int reasonCode, long timeoutMillis) {
+		if (!isConnected() || sender == null || !sender.isRunning()) {
+			return;
+		}
+		MqttToken token = new MqttToken(client.getClientId());
+		try {
+			internalSend(new MqttDisconnect(reasonCode, new MqttProperties()), token);
+			token.internalTok.waitUntilSent(timeoutMillis);
+		} catch (MqttException e) {
+			// the connection is closed anyway
+		} finally {
+			token.internalTok.markComplete(null, null);
 		}
 	}
 
