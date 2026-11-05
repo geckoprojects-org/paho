@@ -37,6 +37,7 @@ are.
 | [#47](https://github.com/geckoprojects-org/paho/issues/47) | – | v3, v5 | QoS 0 messages restored from the stored offline buffer are forgotten once sent; before, they were queued again on every reconnect and held an in-flight slot each. |
 | [#49](https://github.com/geckoprojects-org/paho/issues/49) | – | v3, v5 | The WebSocket receiver writes a frame's payload to the pipe in one call instead of byte by byte (7 times faster), and the masking keys come from one shared `SecureRandom` instead of a new one per frame. |
 | [#50](https://github.com/geckoprojects-org/paho/issues/50) | – | v5 | An incoming PUBLISH that carries only a topic alias is resolved to its topic; before, it was delivered on the empty topic (and the lookup could never succeed). |
+| [#45](https://github.com/geckoprojects-org/paho/issues/45) | – | v3, v5 | Once connected, the receiver blocks in its read without timeout (TCP and TLS); before, a read timeout of 1 s woke every idle client once a second with a `SocketTimeoutException` (soak, 20 s idle: 150 → 42 system calls per client and minute, the rest is keep-alive). The 1 s stays while connecting (CONNACK deadline) and for WebSocket. v3 stops the network module before it joins the receiver. TLS sessions stay resumable (tested on JDK 11–25, TLS 1.2 and 1.3). |
 | [#46](https://github.com/geckoprojects-org/paho/issues/46) | – | v3, v5 | New option `maxQueuedMessages` (default 10,000, 0 for no limit): publishes waiting to be written are limited, a further one fails with `MAX_INFLIGHT`. Before, the in-flight check counted only the written publishes, so while the link stalled the queue grew until keep-alive gave up, for QoS 0 without any other bound. |
 | [#51](https://github.com/geckoprojects-org/paho/issues/51) | – | v5 | Outgoing topic aliases are applied when the publish is written, and the stored message keeps its topic. Before, a QoS 1/2 publish resent after a reconnect carried only an alias of the old connection; the server closes such a connection, so the client never got a working connection again while the message was in the session. |
 
@@ -93,12 +94,9 @@ What existing application code may notice when switching from upstream 1.2.5:
 - **At most 10,000 publishes wait to be written** (#46, option `maxQueuedMessages`): beyond that,
   `publish()` fails with `MAX_INFLIGHT`, which it so far did only for a full in-flight window. A
   working connection does not queue that many; a stalled one did, until keep-alive closed it.
-
-## Open, need a decision
-
-| Issue | Clients | Summary |
-|---|---|---|
-| [#45](https://github.com/geckoprojects-org/paho/issues/45) | v3, v5 | An idle client wakes up every second (receiver read timeout of 1 s, a `SocketTimeoutException` each time). Raising it needs a change of the shutdown order (close the socket, then join the receiver). |
+- **No read timeout once connected** (#45): a custom `SocketFactory` whose sockets rely on
+  `SO_TIMEOUT` sees it set to 0 after the CONNACK. A subclass of `TCPNetworkModule` that needs the
+  timeout overrides `connected()`, as the WebSocket modules do.
 
 ## Security fixes
 
