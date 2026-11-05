@@ -19,6 +19,9 @@ not an official Eclipse release. It carries the upstream history and adds:
   a warning for credentials without TLS; random client ids.
 - **Java 16+:** broker host names with `_` work without reflection on `java.net.URI`.
 - **Resubscribe after reconnect:** new option `automaticResubscribe` (default `true`).
+- **Resource use for long-running devices** (v3, v5): no leaks of file descriptors, message IDs,
+  listeners or stored messages; a bounded send queue (`maxQueuedMessages`); one read per packet;
+  no wakeups of an idle client between keep-alive pings; checked by soak tests.
 - **OSGi and build:** a bnd workspace build (Gradle 9, JDK 25, Java 8 bytecode) instead of
   Maven/Tycho, with manifests that export the API packages of both clients (upstream v5 exports
   only `org.eclipse.paho.mqttv5.client`).
@@ -29,6 +32,11 @@ overview of what is fixed, what is open and what was checked.
 The Paho Java client is an MQTT client library for the JVM. It provides two APIs: `MqttAsyncClient`,
 fully asynchronous with completion via callbacks, and `MqttClient`, a synchronous wrapper around it.
 Details per protocol version: [MQTTv3.md](MQTTv3.md), [MQTTv5.md](MQTTv5.md).
+
+**[GUIDE.md](GUIDE.md) is the complete guide**: adding the client, first steps for v3 and v5, the
+connection options with their defaults, reliable delivery, TLS and WebSocket, threads and the shared
+executor, measured resource use, and setup examples for desktop/server applications and for
+embedded devices.
 
 ## Using the client
 
@@ -121,7 +129,8 @@ Licence: as upstream, EPL-2.0 or EDL-1.0 (see `LICENSE`, `epl-v20`, `edl-v10`, `
 
 ## Getting Started
 
-The included code below is a very basic sample that connects to a server and publishes a message using the MQTTv3 synchronous API. More extensive samples of the MQTTv3 and MQTTv5 asynchronous API are in the `org.eclipse.paho.sample.*` modules of [upstream Paho](https://github.com/eclipse-paho/paho.mqtt.java); this repository does not carry them.
+For asynchronous examples of both clients and setups for desktop and embedded use, see
+[GUIDE.md](GUIDE.md). The included code below is a very basic sample that connects to a server and publishes a message using the MQTTv3 synchronous API. More extensive samples of the MQTTv3 and MQTTv5 asynchronous API are in the `org.eclipse.paho.sample.*` modules of [upstream Paho](https://github.com/eclipse-paho/paho.mqtt.java); this repository does not carry them.
 
 
 ```
