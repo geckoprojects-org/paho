@@ -15,6 +15,7 @@
  *    Ian Craggs - per subscription message handlers (bug 466579)
  *    Ian Craggs - ack control (bug 472172)
  *    James Sutton - Automatic Reconnect & Offline Buffering    
+ *    Mark Hoffmann - message listeners of shared subscriptions
  */
 package org.eclipse.paho.client.mqttv3.internal;
 
@@ -56,7 +57,7 @@ public class CommsCallback implements Runnable {
 	private static final int INBOUND_QUEUE_SIZE = 10;
 	private MqttCallback mqttCallback;
 	private MqttCallbackExtended reconnectInternalCallback;
-	private final Hashtable<String, IMqttMessageListener> callbacksWildcards; // topicFilter with wildcards -> messageHandler
+	private final Hashtable<String, IMqttMessageListener> callbacksWildcards; // topicFilter with wildcards or shared -> messageHandler
 	private final Hashtable<String, IMqttMessageListener> callbacksDirect; // topicFilter without wildcards -> messageHandler
 	private final ClientComms clientComms;
 	private final Vector<MqttWireMessage> messageQueue;
@@ -516,7 +517,10 @@ public class CommsCallback implements Runnable {
 
 
 	public void setMessageListener(String topicFilter, IMqttMessageListener messageListener) {
-		if (topicFilter.contains("#") || topicFilter.contains("+")) {
+		// a shared subscription is matched by the filter after $share/<ShareName>/, see deliverMessage;
+		// it keeps its own key, so that it neither replaces nor removes a listener of the plain filter
+		if (topicFilter.contains("#") || topicFilter.contains("+")
+				|| topicFilter.startsWith(MqttTopic.SHARED_SUBSCRIPTION_PREFIX)) {
 			this.callbacksWildcards.put(topicFilter, messageListener);
 		} else {
 			this.callbacksDirect.put(topicFilter, messageListener);
@@ -554,7 +558,7 @@ public class CommsCallback implements Runnable {
 			if(callback == null) {
 				continue;
 			}
-			if (MqttTopic.isMatched(topicFilter, topicName)) {
+			if (MqttTopic.isMatched(MqttTopic.getMatchingTopicFilter(topicFilter), topicName)) {
 				aMessage.setId(messageId);
 				callback.messageArrived(topicName, aMessage);
 				delivered = true;
