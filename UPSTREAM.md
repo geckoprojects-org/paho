@@ -37,6 +37,7 @@ are.
 | [#47](https://github.com/geckoprojects-org/paho/issues/47) | – | v3, v5 | QoS 0 messages restored from the stored offline buffer are forgotten once sent; before, they were queued again on every reconnect and held an in-flight slot each. |
 | [#49](https://github.com/geckoprojects-org/paho/issues/49) | – | v3, v5 | The WebSocket receiver writes a frame's payload to the pipe in one call instead of byte by byte (7 times faster), and the masking keys come from one shared `SecureRandom` instead of a new one per frame. |
 | [#50](https://github.com/geckoprojects-org/paho/issues/50) | – | v5 | An incoming PUBLISH that carries only a topic alias is resolved to its topic; before, it was delivered on the empty topic (and the lookup could never succeed). |
+| [#46](https://github.com/geckoprojects-org/paho/issues/46) | – | v3, v5 | New option `maxQueuedMessages` (default 10,000, 0 for no limit): publishes waiting to be written are limited, a further one fails with `MAX_INFLIGHT`. Before, the in-flight check counted only the written publishes, so while the link stalled the queue grew until keep-alive gave up, for QoS 0 without any other bound. |
 | [#51](https://github.com/geckoprojects-org/paho/issues/51) | – | v5 | Outgoing topic aliases are applied when the publish is written, and the stored message keeps its topic. Before, a QoS 1/2 publish resent after a reconnect carried only an alias of the old connection; the server closes such a connection, so the client never got a working connection again while the message was in the session. |
 
 Found with the soak scenarios of the load test (#34) and a review for resource leaks, the rows from
@@ -89,13 +90,15 @@ What existing application code may notice when switching from upstream 1.2.5:
   `connectComplete` followed by the disconnect in this rare case, instead of a connected client.
 - **v5 assigns topic aliases per connection when writing** (#51): the token's message keeps its
   topic; nothing changes for applications that do not set aliases themselves.
+- **At most 10,000 publishes wait to be written** (#46, option `maxQueuedMessages`): beyond that,
+  `publish()` fails with `MAX_INFLIGHT`, which it so far did only for a full in-flight window. A
+  working connection does not queue that many; a stalled one did, until keep-alive closed it.
 
 ## Open, need a decision
 
 | Issue | Clients | Summary |
 |---|---|---|
 | [#45](https://github.com/geckoprojects-org/paho/issues/45) | v3, v5 | An idle client wakes up every second (receiver read timeout of 1 s, a `SocketTimeoutException` each time). Raising it needs a change of the shutdown order (close the socket, then join the receiver). |
-| [#46](https://github.com/geckoprojects-org/paho/issues/46) | v3, v5 | The send queue has no limit while the link stalls (QoS 0 in particular); bounded only in time by keep-alive. Limiting it changes what applications see (`MAX_INFLIGHT`). |
 
 ## Security fixes
 

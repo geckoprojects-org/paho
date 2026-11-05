@@ -21,6 +21,7 @@
  *    Mark Hoffmann - offline buffer releases message IDs and stored messages
  *    Mark Hoffmann - offline buffer sent without busy-spinning
  *    Mark Hoffmann - disconnect after a reconnect that outlived disconnect()
+ *    Mark Hoffmann - queued publish limit
  */
 package org.eclipse.paho.client.mqttv3.internal;
 
@@ -319,6 +320,7 @@ public class ClientComms {
                 this.clientState.setCleanSession(conOptions.isCleanSession());
                 this.clientState.setMaxInflight(conOptions.getMaxInflight());
                 this.clientState.setMaxInboundPacketSize(conOptions.getMaxInboundPacketSize());
+                this.clientState.setMaxQueuedMessages(conOptions.getMaxQueuedMessages());
 
 				tokenStore.open();
 				ConnectBG conbg = new ConnectBG(this, token, connect, executorService);

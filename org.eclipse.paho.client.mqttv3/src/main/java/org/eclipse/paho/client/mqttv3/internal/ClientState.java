@@ -21,6 +21,7 @@
  *    Mark Hoffmann - maximum inbound packet size
  *    Mark Hoffmann - offline buffer releases message IDs and stored messages
  *    Mark Hoffmann - removeMessage() finds a queued publish
+ *    Mark Hoffmann - queued publish limit
  *    Mark Hoffmann - restored QoS 0 messages sent once
  */
 package org.eclipse.paho.client.mqttv3.internal;
@@ -130,6 +131,7 @@ public class ClientState {
 	
 	private int maxInflight = 0;	
 	private int maxInboundPacketSize = 0;
+	private int maxQueuedMessages = 0;
 	private int actualInFlight = 0;
 	private int inFlightPubRels = 0;
 	
@@ -184,6 +186,9 @@ public class ClientState {
         this.maxInflight = maxInflight;
         pendingMessages = new Vector(this.maxInflight);
     }
+	protected void setMaxQueuedMessages(int maxQueuedMessages) {
+		this.maxQueuedMessages = maxQueuedMessages;
+	}
 	protected void setMaxInboundPacketSize(int maxInboundPacketSize) {
 		this.maxInboundPacketSize = maxInboundPacketSize;
 	}
@@ -537,6 +542,13 @@ public class ClientState {
 				if (actualInFlight >= this.maxInflight) {
 					//@TRACE 613= sending {0} msgs at max inflight window
 					log.fine(CLASS_NAME, methodName, "613", new Object[]{ Integer.valueOf(actualInFlight)});
+
+					throw new MqttException(MqttException.REASON_CODE_MAX_INFLIGHT);
+				}
+				// the in-flight count leaves out the queued publishes, they pile up while the link stalls
+				if (maxQueuedMessages > 0 && pendingMessages.size() >= maxQueuedMessages) {
+					//@TRACE 614=sending {0} msgs at max queued messages
+					log.fine(CLASS_NAME, methodName, "614", new Object[]{ Integer.valueOf(pendingMessages.size())});
 
 					throw new MqttException(MqttException.REASON_CODE_MAX_INFLIGHT);
 				}

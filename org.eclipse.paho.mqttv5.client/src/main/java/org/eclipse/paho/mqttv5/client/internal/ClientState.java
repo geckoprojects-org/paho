@@ -23,6 +23,7 @@
  *    Mark Hoffmann - inbound QoS 2 logged at FINE
  *    Mark Hoffmann - offline buffer releases message IDs and stored messages
  *    Mark Hoffmann - outgoing topic alias counter bounded
+ *    Mark Hoffmann - queued publish limit
  *    Mark Hoffmann - restored QoS 0 messages sent once
  *    Mark Hoffmann - incoming topic aliases resolved
  *    Mark Hoffmann - outgoing topic aliases applied when written
@@ -131,6 +132,7 @@ public class ClientState implements MqttState {
 
 	private int actualInFlight = 0;
 	private int inFlightPubRels = 0;
+	private int maxQueuedMessages = 0;
 
 	private final Object queueLock = new Object();
 	private final Object quiesceLock = new Object();
@@ -186,6 +188,10 @@ public class ClientState implements MqttState {
 		this.mqttConnection = mqttConnection;
 
 		restoreState();
+	}
+
+	protected void setMaxQueuedMessages(int maxQueuedMessages) {
+		this.maxQueuedMessages = maxQueuedMessages;
 	}
 
 	protected void setCleanStart(boolean cleanStart) {
@@ -585,6 +591,13 @@ public class ClientState implements MqttState {
 				if (actualInFlight >= this.mqttConnection.getReceiveMaximum()) {
 					// @TRACE 613= sending {0} msgs at max inflight window
 					log.fine(CLASS_NAME, methodName, "613", new Object[] { Integer.valueOf(actualInFlight) });
+
+					throw new MqttException(MqttClientException.REASON_CODE_MAX_INFLIGHT);
+				}
+				// the in-flight count leaves out the queued publishes, they pile up while the link stalls
+				if (maxQueuedMessages > 0 && pendingMessages.size() >= maxQueuedMessages) {
+					// @TRACE 614=sending {0} msgs at max queued messages
+					log.fine(CLASS_NAME, methodName, "614", new Object[] { Integer.valueOf(pendingMessages.size()) });
 
 					throw new MqttException(MqttClientException.REASON_CODE_MAX_INFLIGHT);
 				}

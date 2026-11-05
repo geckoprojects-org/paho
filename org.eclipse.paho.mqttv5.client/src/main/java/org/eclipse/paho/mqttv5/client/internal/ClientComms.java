@@ -22,6 +22,7 @@ package org.eclipse.paho.mqttv5.client.internal;
  *    Mark Hoffmann - DISCONNECT 0x95 on a too large packet
  *    Mark Hoffmann - offline buffer releases message IDs and stored messages
  *    Mark Hoffmann - disconnect after a reconnect that outlived disconnect()
+ *    Mark Hoffmann - queued publish limit
  */
 import java.util.Enumeration;
 import java.util.Properties;
@@ -359,6 +360,7 @@ public class ClientComms {
 				 */
 				this.mqttConnection.setKeepAliveSeconds(conOptions.getKeepAliveInterval());
 				this.clientState.setCleanStart(conOptions.isCleanStart());
+				this.clientState.setMaxQueuedMessages(conOptions.getMaxQueuedMessages());
 
 				tokenStore.open();
 				ConnectBG conbg = new ConnectBG(this, token, connect, executorService);

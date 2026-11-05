@@ -14,7 +14,7 @@
  *    Dave Locke - initial API and implementation and/or initial documentation
  *    Ian Craggs - MQTT 3.1.1 support
  *    James Sutton - Automatic Reconnect & Offline Buffering
- *    Mark Hoffmann - automaticResubscribe option, maximum inbound packet size, no secrets in log output, {xor} documented as obfuscation only
+ *    Mark Hoffmann - automaticResubscribe option, maximum inbound packet size, no secrets in log output, {xor} documented as obfuscation only, queued publish limit
  */
 package org.eclipse.paho.client.mqttv3;
 
@@ -47,6 +47,10 @@ public class MqttConnectOptions {
 	 */
 	public static final int MAX_INBOUND_PACKET_SIZE_DEFAULT = 1024 * 1024;
 	/**
+	 * The default maximum number of publishes waiting to be sent.
+	 */
+	public static final int MAX_QUEUED_MESSAGES_DEFAULT = 10000;
+	/**
 	 * The default clean session setting if one is not specified
 	 */
 	public static final boolean CLEAN_SESSION_DEFAULT = true;
@@ -66,6 +70,7 @@ public class MqttConnectOptions {
 	private int keepAliveInterval = KEEP_ALIVE_INTERVAL_DEFAULT;
 	private int maxInflight = MAX_INFLIGHT_DEFAULT;
 	private int maxInboundPacketSize = MAX_INBOUND_PACKET_SIZE_DEFAULT;
+	private int maxQueuedMessages = MAX_QUEUED_MESSAGES_DEFAULT;
 	private String willDestination = null;
 	private MqttMessage willMessage = null;
 	private String userName;
@@ -339,6 +344,39 @@ public class MqttConnectOptions {
 			throw new IllegalArgumentException();
 		}
 		this.maxInboundPacketSize = maxInboundPacketSize;
+	}
+
+	/**
+	 * Returns the maximum number of publishes waiting to be sent.
+	 *
+	 * @see #setMaxQueuedMessages(int)
+	 * @return the maximum number of queued publishes, 0 for no limit
+	 */
+	public int getMaxQueuedMessages() {
+		return maxQueuedMessages;
+	}
+
+	/**
+	 * Sets the maximum number of publishes that wait in the client to be written to
+	 * the network. The in-flight limit ({@link #setMaxInflight(int)}) counts only
+	 * the publishes written already, so while the connection stalls (the peer does
+	 * not read, a full TCP window) every further publish waits in memory until
+	 * keep-alive closes the connection; for QoS 0 nothing else limits them. When
+	 * this many publishes are waiting, a further publish fails with
+	 * {@link MqttException#REASON_CODE_MAX_INFLIGHT}.
+	 * <p>
+	 * The default value is {@link #MAX_QUEUED_MESSAGES_DEFAULT}, far above what a
+	 * working connection queues; lower it on devices with a small heap.
+	 * </p>
+	 *
+	 * @param maxQueuedMessages
+	 *            the maximum number of queued publishes, 0 for no limit
+	 */
+	public void setMaxQueuedMessages(int maxQueuedMessages) {
+		if (maxQueuedMessages < 0) {
+			throw new IllegalArgumentException();
+		}
+		this.maxQueuedMessages = maxQueuedMessages;
 	}
 
 	/**
@@ -759,6 +797,7 @@ public class MqttConnectOptions {
 		p.put("ConTimeout", Integer.valueOf(getConnectionTimeout()));
 		p.put("KeepAliveInterval", Integer.valueOf(getKeepAliveInterval()));
 		p.put("MaxInboundPacketSize", Integer.valueOf(getMaxInboundPacketSize()));
+		p.put("MaxQueuedMessages", Integer.valueOf(getMaxQueuedMessages()));
 		p.put("UserName", (getUserName() == null) ? strNull : getUserName());
 		p.put("WillDestination", (getWillDestination() == null) ? strNull : getWillDestination());
 		if (getSocketFactory() == null) {
