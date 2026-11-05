@@ -278,4 +278,27 @@ public class SubscriptionIdentifierTest {
 		sync();
 		Assert.assertEquals(Collections.singletonList("a/b"), listener.topics);
 	}
+	@Test
+	public void testSharedSubscriptionByTopic() throws Exception {
+		connect(false);
+		Recorder listener = new Recorder();
+		subscribe(filters("$share/g/a/+"), listener, new MqttProperties());
+
+		broker.publish("a/b", "x", 0);
+		sync();
+		Assert.assertEquals(Collections.singletonList("a/b"), listener.topics);
+		Assert.assertEquals(Collections.emptyList(), unrouted);
+	}
+
+	@Test
+	public void testSharedSubscriptionByIdentifier() throws Exception {
+		connect(true);
+		Recorder listener = new Recorder();
+		subscribe(filters("$share/g/a/b"), listener, new MqttProperties());
+
+		broker.publish("a/b", "x", 0, lastSubscriptionIdentifier());
+		sync();
+		Assert.assertEquals(Collections.singletonList("a/b"), listener.topics);
+		Assert.assertEquals(Collections.emptyList(), unrouted);
+	}
 }

@@ -17,7 +17,8 @@
  *    James Sutton - Automatic Reconnect & Offline Buffering
  *    Mark Hoffmann - inbound QoS 2 logged at FINE
  *    Mark Hoffmann - message listeners replaced on re-subscribe, guarded by a lock
- *    Mark Hoffmann - one subscription identifier for several filters, mixed id and topic routing
+ *    Mark Hoffmann - one subscription identifier for several filters, mixed id and topic routing,
+ *                    topic routing of shared subscriptions
  */
 package org.eclipse.paho.mqttv5.client.internal;
 
@@ -702,7 +703,8 @@ public class CommsCallback implements Runnable {
 				if (knownSubscriptionId && this.callbackSubscriptionIdMap.containsKey(entry.getValue())) {
 					continue;
 				}
-				if (MqttTopicValidator.isMatched(entry.getKey(), topicName)) {
+				// a shared subscription matches with the filter after $share/<ShareName>/
+				if (MqttTopicValidator.isMatched(MqttTopicValidator.getMatchingTopicFilter(entry.getKey()), topicName)) {
 					listeners.add(this.callbackMap.get(entry.getValue()));
 				}
 			}

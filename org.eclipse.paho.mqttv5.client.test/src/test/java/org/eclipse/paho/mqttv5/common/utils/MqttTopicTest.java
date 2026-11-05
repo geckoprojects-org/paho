@@ -85,4 +85,16 @@ public class MqttTopicTest {
 		MqttTopicValidator.validate("$shared/葛渚噓/GVTDurTopic02/葛渚噓", true, true);
 	}
 
+	@Test
+	public void testMatchingTopicFilterOfSharedSubscription() {
+		Assert.assertEquals("a/b", MqttTopicValidator.getMatchingTopicFilter("$share/g/a/b"));
+		Assert.assertEquals("a/#", MqttTopicValidator.getMatchingTopicFilter("$share/group/a/#"));
+		Assert.assertEquals("/a", MqttTopicValidator.getMatchingTopicFilter("$share/g//a"));
+		Assert.assertEquals("a/b", MqttTopicValidator.getMatchingTopicFilter("a/b"));
+		Assert.assertEquals("$shared/g/a", MqttTopicValidator.getMatchingTopicFilter("$shared/g/a"));
+		// no filter after the share name: left as it is
+		Assert.assertEquals("$share/g", MqttTopicValidator.getMatchingTopicFilter("$share/g"));
+		Assert.assertTrue(MqttTopicValidator.isMatched(MqttTopicValidator.getMatchingTopicFilter("$share/g/a/+"), "a/b"));
+	}
+
 }
