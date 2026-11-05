@@ -40,6 +40,8 @@ are.
 | [#45](https://github.com/geckoprojects-org/paho/issues/45) | – | v3, v5 | Once connected, the receiver blocks in its read without timeout (TCP and TLS); before, a read timeout of 1 s woke every idle client once a second with a `SocketTimeoutException` (soak, 20 s idle: 150 → 42 system calls per client and minute, the rest is keep-alive). The 1 s stays while connecting (CONNACK deadline) and for WebSocket. v3 stops the network module before it joins the receiver. TLS sessions stay resumable (tested on JDK 11–25, TLS 1.2 and 1.3). |
 | [#46](https://github.com/geckoprojects-org/paho/issues/46) | – | v3, v5 | New option `maxQueuedMessages` (default 10,000, 0 for no limit): publishes waiting to be written are limited, a further one fails with `MAX_INFLIGHT`. Before, the in-flight check counted only the written publishes, so while the link stalled the queue grew until keep-alive gave up, for QoS 0 without any other bound. |
 | [#51](https://github.com/geckoprojects-org/paho/issues/51) | – | v5 | Outgoing topic aliases are applied when the publish is written, and the stored message keeps its topic. Before, a QoS 1/2 publish resent after a reconnect carried only an alias of the old connection; the server closes such a connection, so the client never got a working connection again while the message was in the session. |
+| [#53](https://github.com/geckoprojects-org/paho/issues/53) | – | v5 | Subscription identifiers reach the server: an automatically assigned one is sent in the SUBSCRIBE (in a copy of the caller's properties), and one given by the application is read from `setSubscriptionIdentifier` (the SUBSCRIBE property), not from the list of a received PUBLISH. Before, the listener was linked to an identifier the server never saw, or to another one than the server echoed, and the message went to `messageArrived` or was lost. One identifier stays linked to all filters of its SUBSCRIBE; listeners subscribed without identifier still get messages that carry one. |
+| [#52](https://github.com/geckoprojects-org/paho/issues/52) | – | v5 | Messages of a shared subscription (`$share/<group>/<filter>`) reach its message listener; the topic matching uses the filter after the share name. Before, they went to `messageArrived` or were lost when the server sent no subscription identifier. |
 
 Found with the soak scenarios of the load test (#34) and a review for resource leaks, the rows from
 #35 on are about what grows on a device that runs for months: file descriptors, message IDs,
@@ -94,6 +96,12 @@ What existing application code may notice when switching from upstream 1.2.5:
 - **At most 10,000 publishes wait to be written** (#46, option `maxQueuedMessages`): beyond that,
   `publish()` fails with `MAX_INFLIGHT`, which it so far did only for a full in-flight window. A
   working connection does not queue that many; a stalled one did, until keep-alive closed it.
+- **v5 sends subscription identifiers** (#53): with `useSubscriptionIdentifiers` (default `true`)
+  a subscribe with a message listener carries an identifier the client assigns. A given identifier
+  is now read from `setSubscriptionIdentifier`, also when automatic assignment is off; it throws
+  `IllegalArgumentException` only when another filter uses it, a re-subscribe of the same filters
+  may keep it. Applications that set it in `setSubscriptionIdentifiers` as a workaround can drop
+  that.
 - **No read timeout once connected** (#45): a custom `SocketFactory` whose sockets rely on
   `SO_TIMEOUT` sees it set to 0 after the CONNACK. A subclass of `TCPNetworkModule` that needs the
   timeout overrides `connected()`, as the WebSocket modules do.
