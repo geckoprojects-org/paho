@@ -22,9 +22,11 @@
  *    Mark Hoffmann - offline buffer sent without busy-spinning
  *    Mark Hoffmann - disconnect after a reconnect that outlived disconnect()
  *    Mark Hoffmann - queued publish limit
+ *    Mark Hoffmann - no read timeout once connected, network module stopped before joining the receiver
  */
 package org.eclipse.paho.client.mqttv3.internal;
 
+import java.io.IOException;
 import java.util.Enumeration;
 import java.util.Properties;
 import java.util.Vector;
@@ -342,6 +344,21 @@ public class ClientComms {
 		}
 	}
 
+	/**
+	 * The receiver needs its read timeout only until the CONNACK (deadline check);
+	 * once connected, a TCP network module lets it block until data arrives or the
+	 * module is stopped, so that an idle client does not wake up every second.
+	 */
+	private void connected(NetworkModule networkModule) {
+		if (networkModule instanceof TCPNetworkModule) {
+			try {
+				((TCPNetworkModule) networkModule).connected();
+			} catch (IOException e) {
+				// keeps the read timeout
+			}
+		}
+	}
+
 	public void connectComplete( MqttConnack cack, MqttException mex) throws MqttException {
 		final String methodName = "connectComplete";
 		int rc = cack.getReturnCode();
@@ -353,6 +370,7 @@ public class ClientComms {
 
 				conState = CONNECTED;
 				clearConnackDeadline();
+				connected(networkModules[networkModuleIndex]);
 				return;
 			}
 		}
@@ -406,8 +424,11 @@ public class ClientComms {
 		// when actions complete
 		if (callback!= null) {callback.stop(); }
 
-		// Stop the thread that handles inbound work from the network
-		if (receiver != null) {receiver.stop();}
+		// Stop the thread that handles inbound work from the network: tell it to stop,
+		// stop the network module, which ends the read it is blocked in, then wait for it.
+		// Waiting first would last until the read times out, and once connected there is
+		// no read timeout (see connected).
+		if (receiver != null) {receiver.requestStop();}
 		
 		// Stop the network module, send and receive now not possible
 		try {
@@ -420,6 +441,8 @@ public class ClientComms {
 		} catch (Exception ioe) {
 			// Ignore as we are shutting down
 		}
+
+		if (receiver != null) {receiver.stop();}
 
 		// Stop any new tokens being saved by app and throwing an exception if they do
 		tokenStore.quiesce(new MqttException(MqttException.REASON_CODE_CLIENT_DISCONNECTING));

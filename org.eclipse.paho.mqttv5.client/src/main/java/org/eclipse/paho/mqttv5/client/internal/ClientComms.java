@@ -23,7 +23,9 @@ package org.eclipse.paho.mqttv5.client.internal;
  *    Mark Hoffmann - offline buffer releases message IDs and stored messages
  *    Mark Hoffmann - disconnect after a reconnect that outlived disconnect()
  *    Mark Hoffmann - queued publish limit
+ *    Mark Hoffmann - no read timeout once connected
  */
+import java.io.IOException;
 import java.util.Enumeration;
 import java.util.Properties;
 import java.util.Vector;
@@ -381,6 +383,21 @@ public class ClientComms {
 		}
 	}
 
+	/**
+	 * The receiver needs its read timeout only until the CONNACK (deadline check);
+	 * once connected, a TCP network module lets it block until data arrives or the
+	 * module is stopped, so that an idle client does not wake up every second.
+	 */
+	private void connected(NetworkModule networkModule) {
+		if (networkModule instanceof TCPNetworkModule) {
+			try {
+				((TCPNetworkModule) networkModule).connected();
+			} catch (IOException e) {
+				// keeps the read timeout
+			}
+		}
+	}
+
 	public void connectComplete(MqttConnAck cack, MqttException mex) throws MqttException {
 		final String methodName = "connectComplete";
 		int rc = cack.getReturnCode();
@@ -392,6 +409,7 @@ public class ClientComms {
 
 				conState = CONNECTED;
 				clearConnackDeadline();
+				connected(networkModules[networkModuleIndex]);
 				return;
 			}
 		}

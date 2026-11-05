@@ -12,6 +12,7 @@
  *
  * Contributors:
  *    Dave Locke - initial API and implementation and/or initial documentation
+ *    Mark Hoffmann - no read timeout once connected
  */
 package org.eclipse.paho.client.mqttv3.internal;
 
@@ -78,6 +79,20 @@ public class TCPNetworkModule implements NetworkModule {
 			//@TRACE 250=Failed to create TCP socket
 			log.fine(CLASS_NAME,methodName,"250",null,ex);
 			throw new MqttException(MqttException.REASON_CODE_SERVER_CONNECT_ERROR, ex);
+		}
+	}
+
+	/**
+	 * Called once the CONNACK has arrived. Until then the receiver wakes up once a
+	 * second to check the CONNACK deadline; afterwards it blocks in its read until
+	 * data arrives or {@link #stop()} closes the socket, so an idle connection
+	 * causes no wakeups.
+	 * 
+	 * @throws IOException if the socket refuses the timeout
+	 */
+	public void connected() throws IOException {
+		if (socket != null) {
+			socket.setSoTimeout(0);
 		}
 	}
 

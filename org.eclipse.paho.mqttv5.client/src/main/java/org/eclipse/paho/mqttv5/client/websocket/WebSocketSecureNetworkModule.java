@@ -15,6 +15,7 @@
  *    Mark Hoffmann - bounded WebSocket input
  *    Mark Hoffmann - ping, pong and fragmented frames
  *    Mark Hoffmann - close the socket when the close frame fails
+ *    Mark Hoffmann - keeps the read timeout once connected
  */
 package org.eclipse.paho.mqttv5.client.websocket;
 
@@ -79,6 +80,14 @@ public class WebSocketSecureNetworkModule extends SSLNetworkModule{
 		return super.getInputStream();
 	}
 	
+	/**
+	 * Keeps the read timeout: the WebSocket receiver thread notices that it is
+	 * stopped only when its read times out.
+	 */
+	@Override
+	public void connected() {
+	}
+
 	public InputStream getInputStream() throws IOException {
 		return pipedInputStream;
 	}
