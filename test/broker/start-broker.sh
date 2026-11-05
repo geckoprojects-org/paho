@@ -27,7 +27,7 @@ ENGINE=$(command -v docker || command -v podman) || { echo "docker or podman req
 "$ENGINE" rm -f "$NAME" >/dev/null 2>&1 || true
 "$ENGINE" run -d --name "$NAME" \
 	-p 1883:1883 -p 18883:18883 -p 8080:8080 -p 8883:8883 \
-	-p 18884:18884 -p 18885:18885 -p 18886:18886 -p 18887:18887 \
+	-p 18884:18884 -p 18885:18885 -p 18886:18886 -p 18887:18887 -p 18443:18443 -p 18444:18444 \
 	-v "$(pwd)/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro" \
 	-v "$(pwd)/certs:/mosquitto/config/certs:ro" \
 	"$IMAGE" >/dev/null

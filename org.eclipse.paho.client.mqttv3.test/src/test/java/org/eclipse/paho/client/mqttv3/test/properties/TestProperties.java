@@ -10,6 +10,8 @@
  * and the Eclipse Distribution License is available at 
  *   https://www.eclipse.org/org/documents/edl-v10.php
  *
+ * Contributors:
+ *    Mark Hoffmann - secure WebSocket and man-in-the-middle test ports
  *******************************************************************************/
 
 package org.eclipse.paho.client.mqttv3.test.properties;
@@ -109,6 +111,12 @@ public class TestProperties {
   
   static public final String KEY_SERVER_WEBSOCKET_URI = "SERVER_WEBSOCKET_URI";
 
+  static public final String KEY_SERVER_WEBSOCKET_SSL_PORT = "SERVER_WEBSOCKET_SSL_PORT";
+
+  static public final String KEY_SERVER_WEBSOCKET_SSL_MITM_PORT = "SERVER_WEBSOCKET_SSL_MITM_PORT";
+
+  static public final String KEY_SERVER_SSL_MITM_PORT = "SERVER_SSL_MITM_PORT";
+
   static private Map<String, String> defaults = new HashMap<String, String>();
 
   private static TestProperties singleton;
@@ -130,6 +138,9 @@ public class TestProperties {
     putDefault(KEY_SERVER_URI, defaultServerURI);
     putDefault(KEY_CLIENT_TYPE, MqttClientFactoryPaho.class.getName());
     putDefault(KEY_SERVER_SSL_PORT, "8883");
+    putDefault(KEY_SERVER_WEBSOCKET_SSL_PORT, "18443");
+    putDefault(KEY_SERVER_WEBSOCKET_SSL_MITM_PORT, "18444");
+    putDefault(KEY_SERVER_SSL_MITM_PORT, "18887");
 
     // Make sure all the property classes we know about get initialised
     List<String> list = new ArrayList<String>();
@@ -370,6 +381,27 @@ public class TestProperties {
   public static int getServerSSLPort() {
     int port = Integer.parseInt(getInstance().getProperty(KEY_SERVER_SSL_PORT));
     return port;
+  }
+
+  /**
+   * @return the secure WebSocket port of the server for testing
+   */
+  public static int getServerWebSocketSSLPort() {
+    return Integer.parseInt(getInstance().getProperty(KEY_SERVER_WEBSOCKET_SSL_PORT));
+  }
+
+  /**
+   * @return the secure WebSocket port whose certificate names a different host
+   */
+  public static int getServerWebSocketSSLMitmPort() {
+    return Integer.parseInt(getInstance().getProperty(KEY_SERVER_WEBSOCKET_SSL_MITM_PORT));
+  }
+
+  /**
+   * @return the SSL port whose certificate names a different host
+   */
+  public static int getServerSSLMitmPort() {
+    return Integer.parseInt(getInstance().getProperty(KEY_SERVER_SSL_MITM_PORT));
   }
 
   /**

@@ -78,6 +78,9 @@ test/broker/start-broker.sh
 test/broker/stop-broker.sh
 ```
 
+The broker tests of both clients take about 20 minutes (16 cores); one module with
+`./gradlew :org.eclipse.paho.mqttv5.client.test:brokerTest`, a single class with `--tests`.
+
 The load test (`org.eclipse.paho.loadtest`, issue #32) runs against the same broker, only on
 request:
 

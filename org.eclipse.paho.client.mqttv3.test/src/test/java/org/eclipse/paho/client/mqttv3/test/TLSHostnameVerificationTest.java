@@ -12,6 +12,7 @@
  *
  * Contributors:
  *   James Sutton - IBM Adding HTTPS Hostname verification tests.
+ *   Mark Hoffmann - secure WebSocket listener, negative cases against a certificate for another host
  */
 
 package org.eclipse.paho.client.mqttv3.test;
@@ -21,6 +22,7 @@ import java.util.logging.Logger;
 import javax.net.ssl.SSLHandshakeException;
 import org.eclipse.paho.client.mqttv3.MqttClient;
 import org.eclipse.paho.client.mqttv3.MqttConnectOptions;
+import org.eclipse.paho.client.mqttv3.MqttException;
 import org.eclipse.paho.client.mqttv3.test.logging.LoggingUtilities;
 import org.eclipse.paho.client.mqttv3.test.properties.TestProperties;
 import org.eclipse.paho.client.mqttv3.test.utilities.Utility;
@@ -40,8 +42,10 @@ public class TLSHostnameVerificationTest {
 
 	private static String serverHost;
 	private static int serverPort;
-	private static String serverIP;
 	private static int websocketPort;
+	// listeners whose certificate names a different host (mitm.invalid)
+	private static int mitmPort;
+	private static int mitmWebsocketPort;
 
 	/**
 	 * @throws Exception
@@ -54,9 +58,10 @@ public class TLSHostnameVerificationTest {
 			LoggingUtilities.banner(log, cclass, methodName);
 			// Configured to use the Paho Testing server localhost certificate
 			serverHost = "localhost";
-			serverIP = "127.0.0.1";
 			serverPort = TestProperties.getServerSSLPort();
-			websocketPort = TestProperties.getServerSSLPort();
+			websocketPort = TestProperties.getServerWebSocketSSLPort();
+			mitmPort = TestProperties.getServerSSLMitmPort();
+			mitmWebsocketPort = TestProperties.getServerWebSocketSSLMitmPort();
 			// certificateName = "server.crt";
 			log.info("Setting SSL properties...");
 			System.setProperty("javax.net.ssl.keyStore", TestProperties.getClientKeyStore());
@@ -107,14 +112,17 @@ public class TLSHostnameVerificationTest {
 
 		MqttConnectOptions connOpts = new MqttConnectOptions();
 		connOpts.setHttpsHostnameVerificationEnabled(true);
-		String serverIPURI = "ssl://" + serverIP + ":" + serverPort;
+		// the server certificate is valid, but for mitm.invalid instead of localhost
+		String serverURI = "ssl://" + serverHost + ":" + mitmPort;
 
-		MqttClient mqttClient = new MqttClient(serverIPURI, MqttClient.generateClientId());
+		MqttClient mqttClient = new MqttClient(serverURI, MqttClient.generateClientId());
 
-		log.info("Connecting to: " + serverIPURI);
+		log.info("Connecting to: " + serverURI);
 		try {
 			mqttClient.connect(connOpts);
-		} catch (Exception ex) {
+			mqttClient.disconnect();
+			Assert.fail("connected to a server whose certificate names a different host");
+		} catch (MqttException ex) {
 			// We want to make sure that the returned exception is an SSLHandshakeException
 			Assert.assertEquals(SSLHandshakeException.class, ex.getCause().getClass());
 			log.info("Expected Exception thrown: " + ex.getCause().getClass());
@@ -163,14 +171,17 @@ public class TLSHostnameVerificationTest {
 
 		MqttConnectOptions connOpts = new MqttConnectOptions();
 		connOpts.setHttpsHostnameVerificationEnabled(true);
-		String serverIPURI = "wss://" + serverIP + ":" + websocketPort + "/ws";
+		// the server certificate is valid, but for mitm.invalid instead of localhost
+		String serverURI = "wss://" + serverHost + ":" + mitmWebsocketPort + "/ws";
 
-		MqttClient mqttClient = new MqttClient(serverIPURI, MqttClient.generateClientId());
+		MqttClient mqttClient = new MqttClient(serverURI, MqttClient.generateClientId());
 
-		log.info("Connecting to: " + serverIPURI);
+		log.info("Connecting to: " + serverURI);
 		try {
 			mqttClient.connect(connOpts);
-		} catch (Exception ex) {
+			mqttClient.disconnect();
+			Assert.fail("connected to a server whose certificate names a different host");
+		} catch (MqttException ex) {
 			// We want to make sure that the returned exception is an SSLHandshakeException
 			Assert.assertEquals(SSLHandshakeException.class, ex.getCause().getClass());
 			log.info("Expected Exception thrown: " + ex.getCause().getClass());
