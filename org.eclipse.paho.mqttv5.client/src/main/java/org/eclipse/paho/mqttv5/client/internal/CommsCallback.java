@@ -17,10 +17,12 @@
  *    James Sutton - Automatic Reconnect & Offline Buffering
  *    Mark Hoffmann - inbound QoS 2 logged at FINE
  *    Mark Hoffmann - message listeners replaced on re-subscribe, guarded by a lock
+ *    Mark Hoffmann - one subscription identifier for several filters, mixed id and topic routing
  */
 package org.eclipse.paho.mqttv5.client.internal;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -62,8 +64,10 @@ public class CommsCallback implements Runnable {
 	private MqttCallback reconnectInternalCallback;
 	private HashMap<Integer, IMqttMessageListener> callbackMap; // Map of message handler callbacks to internal IDs
 	private HashMap<String, Integer> callbackTopicMap; // Map of Topic Strings to internal callback Ids
-	private HashMap<Integer, Integer> subscriptionIdMap; // Map of Subscription Ids to callback Ids
-	/** Guards the three listener maps, changed by application threads and read by the callback thread. */
+	// Map of Subscription Ids to callback Ids: one SUBSCRIBE with several filters links them all to its identifier
+	private HashMap<Integer, List<Integer>> subscriptionIdMap;
+	private HashMap<Integer, Integer> callbackSubscriptionIdMap; // Map of callback Ids to their Subscription Id
+	/** Guards the listener maps, changed by application threads and read by the callback thread. */
 	private final Object listenerLock = new Object();
 	private AtomicInteger messageHandlerId = new AtomicInteger(0);
 	private ClientComms clientComms;
@@ -92,6 +96,7 @@ public class CommsCallback implements Runnable {
 		this.callbackMap = new HashMap<>();
 		this.callbackTopicMap = new HashMap<>();
 		this.subscriptionIdMap = new HashMap<>();
+		this.callbackSubscriptionIdMap = new HashMap<>();
 		log.setResourceName(clientComms.getClient().getClientId());
 	}
 
@@ -576,7 +581,13 @@ public class CommsCallback implements Runnable {
 			this.callbackTopicMap.put(topicFilter, internalId);
 
 			if (subscriptionId != null) {
-				this.subscriptionIdMap.put(subscriptionId, internalId);
+				List<Integer> callbackIds = this.subscriptionIdMap.get(subscriptionId);
+				if (callbackIds == null) {
+					callbackIds = new ArrayList<>(1);
+					this.subscriptionIdMap.put(subscriptionId, callbackIds);
+				}
+				callbackIds.add(internalId);
+				this.callbackSubscriptionIdMap.put(internalId, subscriptionId);
 			}
 		}
 	}
@@ -602,29 +613,38 @@ public class CommsCallback implements Runnable {
 			return;
 		}
 		this.callbackMap.remove(callbackId);
-		// Reverse lookup the subscription ID if it exists to remove that as well
-		removeValue(this.subscriptionIdMap, callbackId);
+		// unlink the subscription ID; it stays for the other filters subscribed with it
+		Integer subscriptionId = this.callbackSubscriptionIdMap.remove(callbackId);
+		if (subscriptionId != null) {
+			List<Integer> callbackIds = this.subscriptionIdMap.get(subscriptionId);
+			callbackIds.remove(callbackId);
+			if (callbackIds.isEmpty()) {
+				this.subscriptionIdMap.remove(subscriptionId);
+			}
+		}
 	}
 
 	/**
 	 * Removes a Message Listener by subscription ID. If the Subscription Identifier
 	 * is null or incorrect, this function will return without making any changes.
-	 * It will also attempt to find any Topic Strings linked to the same message
-	 * listener and will remove them too.
-	 * 
+	 * It also removes the Topic Strings linked to the subscription ID.
+	 *
 	 * @param subscriptionId
 	 *            the subscription ID that identifies the Message listener to
 	 *            remove.
 	 */
 	public void removeMessageListener(Integer subscriptionId) {
 		synchronized (listenerLock) {
-			Integer callbackId = this.subscriptionIdMap.remove(subscriptionId);
-			if (callbackId == null) {
+			List<Integer> callbackIds = this.subscriptionIdMap.remove(subscriptionId);
+			if (callbackIds == null) {
 				return;
 			}
-			this.callbackMap.remove(callbackId);
-			// Reverse lookup the topic if it exists to remove that as well
-			removeValue(this.callbackTopicMap, callbackId);
+			for (Integer callbackId : callbackIds) {
+				this.callbackMap.remove(callbackId);
+				this.callbackSubscriptionIdMap.remove(callbackId);
+				// Reverse lookup the topic to remove that as well
+				removeValue(this.callbackTopicMap, callbackId);
+			}
 		}
 	}
 
@@ -640,6 +660,7 @@ public class CommsCallback implements Runnable {
 		synchronized (listenerLock) {
 			this.callbackMap.clear();
 			this.subscriptionIdMap.clear();
+			this.callbackSubscriptionIdMap.clear();
 			this.callbackTopicMap.clear();
 		}
 	}
@@ -657,20 +678,32 @@ public class CommsCallback implements Runnable {
 		// collected under the lock, called outside it: a listener may subscribe or unsubscribe
 		List<IMqttMessageListener> listeners = new ArrayList<>(1);
 		synchronized (listenerLock) {
-			if (aMessage.getProperties().getSubscriptionIdentifiers().isEmpty()) {
-				// No Subscription IDs, use topic filter matching
-				for (Map.Entry<String, Integer> entry : this.callbackTopicMap.entrySet()) {
-					if (MqttTopicValidator.isMatched(entry.getKey(), topicName)) {
-						listeners.add(this.callbackMap.get(entry.getValue()));
+			// Listeners of the Subscription IDs the server sent; one listener once per ID, even
+			// when it is linked to several filters of the same SUBSCRIBE
+			boolean knownSubscriptionId = false;
+			for (Integer subId : aMessage.getProperties().getSubscriptionIdentifiers()) {
+				List<Integer> callbackIds = this.subscriptionIdMap.get(subId);
+				if (callbackIds == null) {
+					continue;
+				}
+				knownSubscriptionId = true;
+				List<IMqttMessageListener> ofSubscriptionId = new ArrayList<>(1);
+				for (Integer callbackId : callbackIds) {
+					IMqttMessageListener listener = this.callbackMap.get(callbackId);
+					if (!containsInstance(ofSubscriptionId, listener)) {
+						ofSubscriptionId.add(listener);
 					}
 				}
-			} else {
-				// We have Subscription IDs
-				for (Integer subId : aMessage.getProperties().getSubscriptionIdentifiers()) {
-					Integer callbackId = this.subscriptionIdMap.get(subId);
-					if (callbackId != null) {
-						listeners.add(this.callbackMap.get(callbackId));
-					}
+				listeners.addAll(ofSubscriptionId);
+			}
+			// Topic filter matching for the listeners subscribed without Subscription ID; for all
+			// of them when the message carries no Subscription ID this client knows
+			for (Map.Entry<String, Integer> entry : this.callbackTopicMap.entrySet()) {
+				if (knownSubscriptionId && this.callbackSubscriptionIdMap.containsKey(entry.getValue())) {
+					continue;
+				}
+				if (MqttTopicValidator.isMatched(entry.getKey(), topicName)) {
+					listeners.add(this.callbackMap.get(entry.getValue()));
 				}
 			}
 		}
@@ -699,9 +732,42 @@ public class CommsCallback implements Runnable {
 		return delivered;
 	}
 
+	private static boolean containsInstance(List<IMqttMessageListener> listeners, IMqttMessageListener listener) {
+		for (IMqttMessageListener candidate : listeners) {
+			if (candidate == listener) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	public boolean doesSubscriptionIdentifierExist(int subscriptionIdentifier) {
 		synchronized (listenerLock) {
 			return (this.subscriptionIdMap.containsKey(subscriptionIdentifier));
+		}
+	}
+
+	/**
+	 * Whether the subscription identifier is linked to a topic filter other than the given ones.
+	 *
+	 * @param subscriptionIdentifier
+	 *            the subscription identifier
+	 * @param topicFilters
+	 *            the topic filters that may use it
+	 * @return true if another topic filter uses the subscription identifier
+	 */
+	public boolean isSubscriptionIdentifierUsedByOtherFilter(int subscriptionIdentifier, Collection<String> topicFilters) {
+		synchronized (listenerLock) {
+			List<Integer> callbackIds = this.subscriptionIdMap.get(subscriptionIdentifier);
+			if (callbackIds == null) {
+				return false;
+			}
+			for (Map.Entry<String, Integer> entry : this.callbackTopicMap.entrySet()) {
+				if (callbackIds.contains(entry.getValue()) && !topicFilters.contains(entry.getKey())) {
+					return true;
+				}
+			}
+			return false;
 		}
 	}
 

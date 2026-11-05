@@ -53,6 +53,8 @@ public class FakeMqttBroker {
 	private final List<Connection> connections = new CopyOnWriteArrayList<Connection>();
 	/** Entries "connectNumber:topicFilter", one per filter in each SUBSCRIBE. */
 	private final List<String> subscriptions = new CopyOnWriteArrayList<String>();
+	/** Subscription identifier of each v5 SUBSCRIBE received, 0 when it has none. */
+	private final List<Integer> subscriptionIdentifiers = new CopyOnWriteArrayList<Integer>();
 	/** Reason codes of the DISCONNECT packets received, 0 when the packet has none. */
 	private final List<Integer> disconnectReasons = new CopyOnWriteArrayList<Integer>();
 	private final AtomicInteger connects = new AtomicInteger();
@@ -194,6 +196,11 @@ public class FakeMqttBroker {
 		return result;
 	}
 
+	/** Subscription identifier of each v5 SUBSCRIBE received so far, 0 when it had none. */
+	public List<Integer> getSubscriptionIdentifiers() {
+		return new ArrayList<Integer>(subscriptionIdentifiers);
+	}
+
 	/** Closes all client connections; the broker keeps accepting new ones. */
 	public void dropConnections() {
 		for (Connection connection : connections) {
@@ -217,9 +224,18 @@ public class FakeMqttBroker {
 
 	/** Sends a PUBLISH with a binary payload and QoS 0 or 1 to every connected client. */
 	public void publish(String topic, byte[] payload, int qos) throws IOException {
+		publish(topic, payload, qos, new int[0]);
+	}
+
+	/** Sends a v5 PUBLISH carrying the given subscription identifiers to every connected client. */
+	public void publish(String topic, String payload, int qos, int... subscriptionIds) throws IOException {
+		publish(topic, payload.getBytes(StandardCharsets.UTF_8), qos, subscriptionIds);
+	}
+
+	private void publish(String topic, byte[] payload, int qos, int[] subscriptionIds) throws IOException {
 		for (Connection connection : connections) {
 			if (connection.connected) {
-				connection.sendPublish(topic, payload, qos);
+				connection.sendPublish(topic, payload, qos, subscriptionIds);
 			}
 		}
 	}
@@ -332,7 +348,7 @@ public class FakeMqttBroker {
 				}
 			} else if (type == SUBSCRIBE) {
 				int packetId = packet.readUnsignedShort();
-				int remaining = length - 2 - skipProperties(packet);
+				int remaining = length - 2 - readSubscribeProperties(packet);
 				ByteArrayOutputStream ack = new ByteArrayOutputStream();
 				writeShort(ack, packetId);
 				if (protocolLevel == 5) {
@@ -427,7 +443,39 @@ public class FakeMqttBroker {
 			return variableIntSize(propertiesLength) + propertiesLength;
 		}
 
+		/**
+		 * Reads the property block of a SUBSCRIBE, records its subscription identifier and returns
+		 * the number of bytes the block took.
+		 */
+		private int readSubscribeProperties(DataInputStream packet) throws IOException {
+			if (protocolLevel != 5) {
+				return 0;
+			}
+			int propertiesLength = readVariableInt(packet);
+			byte[] block = new byte[propertiesLength];
+			packet.readFully(block);
+			DataInputStream properties = new DataInputStream(new ByteArrayInputStream(block));
+			int subscriptionId = 0;
+			while (properties.available() > 0) {
+				int id = properties.readUnsignedByte();
+				if (id == 0x0B) { // subscription identifier
+					subscriptionId = readVariableInt(properties);
+				} else if (id == 0x26) { // user property
+					properties.readFully(new byte[properties.readUnsignedShort()]);
+					properties.readFully(new byte[properties.readUnsignedShort()]);
+				} else {
+					break; // SUBSCRIBE has no other properties
+				}
+			}
+			subscriptionIdentifiers.add(Integer.valueOf(subscriptionId));
+			return variableIntSize(propertiesLength) + propertiesLength;
+		}
+
 		void sendPublish(String topic, byte[] payload, int qos) throws IOException {
+			sendPublish(topic, payload, qos, new int[0]);
+		}
+
+		void sendPublish(String topic, byte[] payload, int qos, int[] subscriptionIds) throws IOException {
 			ByteArrayOutputStream body = new ByteArrayOutputStream();
 			byte[] topicBytes = topic.getBytes(StandardCharsets.UTF_8);
 			writeShort(body, topicBytes.length);
@@ -436,7 +484,13 @@ public class FakeMqttBroker {
 				writeShort(body, nextPacketId.incrementAndGet() % 65535 + 1);
 			}
 			if (protocolLevel == 5) {
-				body.write(0); // no properties
+				ByteArrayOutputStream props = new ByteArrayOutputStream();
+				for (int subscriptionId : subscriptionIds) {
+					props.write(0x0B);
+					writeVariableInt(props, subscriptionId);
+				}
+				writeVariableInt(body, props.size());
+				body.write(props.toByteArray());
 			}
 			body.write(payload);
 			send(0x30 | (qos << 1), body.toByteArray());
@@ -492,6 +546,14 @@ public class FakeMqttBroker {
 			size++;
 		}
 		return size;
+	}
+
+	private static void writeVariableInt(ByteArrayOutputStream out, int value) {
+		do {
+			int digit = value % 128;
+			value /= 128;
+			out.write(value > 0 ? digit | 0x80 : digit);
+		} while (value > 0);
 	}
 
 	private static void writeShort(ByteArrayOutputStream out, int value) {

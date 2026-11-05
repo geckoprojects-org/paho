@@ -26,6 +26,7 @@ package org.eclipse.paho.mqttv5.client.internal;
  *    Mark Hoffmann - no read timeout once connected
  */
 import java.io.IOException;
+import java.util.Collection;
 import java.util.Enumeration;
 import java.util.Properties;
 import java.util.Vector;
@@ -1096,7 +1097,10 @@ public class ClientComms {
 
 	public boolean doesSubscriptionIdentifierExist(int subscriptionIdentifier) {
 		return this.callback.doesSubscriptionIdentifierExist(subscriptionIdentifier);
+	}
 
+	public boolean isSubscriptionIdentifierUsedByOtherFilter(int subscriptionIdentifier, Collection<String> topicFilters) {
+		return this.callback.isSubscriptionIdentifierUsedByOtherFilter(subscriptionIdentifier, topicFilters);
 	}
 
 }

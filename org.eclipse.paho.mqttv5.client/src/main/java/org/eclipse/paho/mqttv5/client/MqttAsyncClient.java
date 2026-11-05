@@ -15,6 +15,7 @@
  *    Mark Hoffmann - automatic reconnect fixes, warning for credentials without TLS, timers on the
  *                    application's executor
  *    Mark Hoffmann - disconnect after a reconnect that outlived disconnect()
+ *    Mark Hoffmann - subscription identifier sent with the SUBSCRIBE, read from its own property
  */
 
 package org.eclipse.paho.mqttv5.client;
@@ -1357,30 +1358,36 @@ public class MqttAsyncClient implements MqttClientInterface, IMqttAsyncClient {
 	public IMqttToken subscribe(MqttSubscription[] subscriptions, Object userContext, MqttActionListener callback,
 			IMqttMessageListener messageListener, MqttProperties subscriptionProperties) throws MqttException {
 
-		int subId = 0;
-		try {
-			subId = subscriptionProperties.getSubscriptionIdentifiers().get(0);
-		} catch (IndexOutOfBoundsException e) {
-			log.fine(CLASS_NAME, "subscribe", "No sub subscription property(s)");
+		if (subscriptionProperties == null) {
+			subscriptionProperties = new MqttProperties();
 		}
-		// Automatic Subscription Identifier Assignment is enabled
-		if (connOpts.useSubscriptionIdentifiers() && this.mqttConnection.isSubscriptionIdentifiersAvailable()) {
-
-			// Application is overriding the subscription Identifier
-			if (subId != 0) {
-				// Check that we are not already using this ID, else throw Illegal Argument
-				// Exception
-				if (this.comms.doesSubscriptionIdentifierExist(subId)) {
-					throw new IllegalArgumentException(
-							String.format("The Subscription Identifier %s already exists.", subId));
-				}
-
-			} else {
-				// Automatically assign new ID and link to callback.
-				subId = this.mqttSession.getNextSubscriptionIdentifier();
+		// The identifier encoded into the SUBSCRIBE, not those of a received PUBLISH
+		Integer subId = subscriptionProperties.getSubscriptionIdentifier();
+		if (subId != null) {
+			// Application is setting the subscription Identifier: the server echoes it in every
+			// PUBLISH, so the listener is linked to it even without automatic assignment. A
+			// re-subscribe of the same filters may keep it, another filter must not share it.
+			List<String> topicFilters = new ArrayList<String>(subscriptions.length);
+			for (MqttSubscription subscription : subscriptions) {
+				topicFilters.add(subscription.getTopic());
 			}
+			if (this.comms.isSubscriptionIdentifierUsedByOtherFilter(subId, topicFilters)) {
+				throw new IllegalArgumentException(
+						String.format("The Subscription Identifier %s already exists.", subId));
+			}
+		} else if (messageListener != null && connOpts.useSubscriptionIdentifiers()
+				&& this.mqttConnection.isSubscriptionIdentifiersAvailable()) {
+			// Automatically assign a new ID, skipping those the application set itself
+			do {
+				subId = this.mqttSession.getNextSubscriptionIdentifier();
+			} while (this.comms.doesSubscriptionIdentifierExist(subId));
+			// send it in a copy, the caller's properties may be reused for the next subscribe
+			MqttProperties withSubId = new MqttProperties();
+			withSubId.setUserProperties(subscriptionProperties.getUserProperties());
+			withSubId.setSubscriptionIdentifier(subId);
+			subscriptionProperties = withSubId;
 		}
-		
+
 		// add message handlers to the list for this client
 		for (MqttSubscription subscription : subscriptions) {
 			MqttTopicValidator.validate(subscription.getTopic(),
