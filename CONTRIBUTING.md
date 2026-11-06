@@ -2,7 +2,8 @@
 
 Thanks for your interest in this project! It is a Gecko projects build of the
 [Eclipse Paho Java client](https://github.com/eclipse-paho/paho.mqtt.java); bug fixes and
-improvements are welcome as pull requests against `main`.
+improvements are welcome as pull requests against `snapshot`, the default branch; `main` holds
+the releases.
 
 - Keep changes focused; one topic per pull request.
 - Sign off your commits (`git commit -s`, Developer Certificate of Origin).

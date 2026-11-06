@@ -6,7 +6,7 @@ The v5 client is build on the same foundations as the v3 client is, however it i
 
 ### Downloading and building
 
-This Gecko build is published as `org.geckoprojects.paho:org.eclipse.paho.mqttv5.client`; see the [README](README.md)
+This Gecko build is published as `org.geckoprojects.paho:org.eclipse.paho.mqttv5.client`; see the [README](../README.md)
 for the Maven coordinates and for building and testing with `./gradlew`.
 
 ## Documentation

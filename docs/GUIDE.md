@@ -3,7 +3,7 @@
 A complete guide to the Gecko build of the Eclipse Paho Java client: how to add it, connect,
 publish and subscribe, which options matter, and how to set it up for a desktop or server
 application and for an embedded device. What differs from upstream Paho, and why, is in
-[UPSTREAM.md](UPSTREAM.md); building and testing this repository is in the [README](README.md).
+[UPSTREAM.md](UPSTREAM.md); building and testing this repository is in the [README](../README.md).
 
 - [1. Choosing a client](#1-choosing-a-client)
 - [2. Adding the client](#2-adding-the-client)

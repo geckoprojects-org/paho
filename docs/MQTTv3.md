@@ -6,7 +6,7 @@ The Paho Java Client provides two APIs: MqttAsyncClient provides a fully asychro
 
 ### Downloading and building
 
-This Gecko build is published as `org.geckoprojects.paho:org.eclipse.paho.client.mqttv3`; see the [README](README.md)
+This Gecko build is published as `org.geckoprojects.paho:org.eclipse.paho.client.mqttv3`; see the [README](../README.md)
 for the Maven coordinates and for building and testing with `./gradlew`.
 
 ## Documentation
