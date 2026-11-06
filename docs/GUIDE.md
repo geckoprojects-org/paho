@@ -36,7 +36,7 @@ newer and have no dependencies.
 
 ## 2. Adding the client
 
-Maven Central, until the 1.3.0 release as `1.3.0-SNAPSHOT` in the Central snapshot repository:
+From Maven Central:
 
 ```xml
 <dependency>

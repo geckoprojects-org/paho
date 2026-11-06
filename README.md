@@ -1,5 +1,13 @@
 # Paho Java Client — Gecko build
 
+[![CI Build](https://github.com/geckoprojects-org/paho/actions/workflows/build.yml/badge.svg?branch=snapshot)](https://github.com/geckoprojects-org/paho/actions/workflows/build.yml)
+[![CodeQL](https://github.com/geckoprojects-org/paho/actions/workflows/codeql.yml/badge.svg?branch=snapshot)](https://github.com/geckoprojects-org/paho/actions/workflows/codeql.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/geckoprojects-org/paho/badge)](https://scorecard.dev/viewer/?uri=github.com/geckoprojects-org/paho)
+[![Maven Central](https://img.shields.io/maven-central/v/org.geckoprojects.paho/org.eclipse.paho.mqttv5.client?label=Maven%20Central)](https://central.sonatype.com/namespace/org.geckoprojects.paho)
+[![Javadoc](https://javadoc.io/badge2/org.geckoprojects.paho/org.eclipse.paho.mqttv5.client/javadoc.svg)](https://javadoc.io/doc/org.geckoprojects.paho/org.eclipse.paho.mqttv5.client)
+[![License: EPL-2.0 / EDL-1.0](https://img.shields.io/badge/license-EPL--2.0%20%2F%20EDL--1.0-blue)](LICENSE)
+[![Java 8+](https://img.shields.io/badge/Java-8%2B-blue)](docs/GUIDE.md#2-adding-the-client)
+
 This repository is a **Gecko projects build of the [Eclipse Paho Java client](https://github.com/eclipse-paho/paho.mqtt.java)**,
 not an official Eclipse release. It carries the upstream history and adds:
 
@@ -43,8 +51,8 @@ embedded devices.
 The packages and bundle symbolic names stay `org.eclipse.paho.*`, so the bundles are drop-in
 replacements for the upstream ones (same API; Java 8 or newer). Some defaults behave differently,
 see [Behaviour changes](docs/UPSTREAM.md#behaviour-changes-for-applications). They are published to
-Maven Central under their own coordinates; until the 1.3.0 release, as `1.3.0-SNAPSHOT` in the
-Central snapshot repository and the DIM Nexus:
+Maven Central under their own coordinates ([release notes](https://github.com/geckoprojects-org/paho/releases));
+snapshots of the next version are in the Central snapshot repository and the DIM Nexus:
 
 | Client | Maven coordinates |
 |---|---|
@@ -116,7 +124,8 @@ takes about 2.5 min without load and 3.5 min under load, so the default of 3 run
 
 `test/broker/generate-certs.sh` renews the test certificates and the `clientkeystore.jks` of the test
 modules. Snapshots and releases are built by Jenkins (`Jenkinsfile`); GitHub Actions checks licence
-headers, build and tests.
+headers, build and tests, runs CodeQL and the OpenSSF Scorecard. How a release is made:
+[docs/RELEASING.md](docs/RELEASING.md).
 
 ## Upstream
 

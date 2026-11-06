@@ -147,9 +147,9 @@ Not upstream contributions, but different from an upstream build:
 - bnd workspace build (Gradle 9, JDK 25, Java 8 bytecode) instead of Maven/Tycho; Maven coordinates
   `org.geckoprojects.paho:org.eclipse.paho.client.mqttv3` / `org.eclipse.paho.mqttv5.client`,
   version line 1.3.x.
-- Snapshots (`1.3.0-SNAPSHOT`) are published by Jenkins from the branch `snapshot` to the DIM Nexus
-  and the Maven Central snapshot repository; releases from `main` to the DIM Nexus and Maven
-  Central.
+- Snapshots are published by Jenkins from the branch `snapshot` to the DIM Nexus and the Maven
+  Central snapshot repository; releases from `main` to the DIM Nexus and Maven Central, with a
+  GitHub release per tag ([RELEASING.md](RELEASING.md)).
 - Tests that need no broker run in every build, against an in-process `FakeMqttBroker` that can
   go silent, refuse connections or drop them; their waits scale with `-Ppaho.test.timeFactor`
   (CI: 2). Under full CPU load they are stable with factor 1 and 2 (#22: 40 runs measured, the
