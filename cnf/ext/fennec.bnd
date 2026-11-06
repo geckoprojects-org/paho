@@ -13,7 +13,7 @@
 
 # Own version line of the Gecko build, separate from upstream Paho (last upstream release 1.2.5,
 # develop at 1.2.6-SNAPSHOT) and from the former org.geckoprojects.messaging v5 fork (1.2.7).
-base-version: 1.3.0
+base-version: 1.3.1
 
 # The Paho clients stay on Java 8 bytecode like upstream; bnd compiles with --release 8.
 javac.source: 1.8
