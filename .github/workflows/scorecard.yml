@@ -1,0 +1,59 @@
+# OpenSSF Scorecard: rates the supply-chain security of this repository and publishes the score
+# for the README badge (https://scorecard.dev/viewer/?uri=github.com/geckoprojects-org/paho).
+# The results also go to the code scanning dashboard of the repository.
+#
+# Scorecard evaluates the default branch only (snapshot). With publish_results the job may only
+# contain the approved steps and no other write permissions than the two below.
+name: Scorecard
+
+on:
+  # Branch-Protection check: re-run when the protection rules change.
+  branch_protection_rule:
+  # Maintained check: run at least weekly.
+  schedule:
+    - cron: '27 5 * * 1'
+  push:
+    branches:
+      - snapshot
+  workflow_dispatch:
+
+# Least privilege: everything read-only, the job adds what it needs.
+permissions: read-all
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    runs-on: ubuntu-latest
+    permissions:
+      # Upload the results to the code scanning dashboard.
+      security-events: write
+      # Publish the results to the OpenSSF REST API, needed for the badge.
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run analysis
+        uses: ossf/scorecard-action@fa7117db83c52d787ae5a89f350999701505d78e # v2.5.0
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          # The Branch-Protection check reads classic branch protection only with an admin PAT;
+          # rulesets are read with the default token. For classic protection add the line
+          #   repo_token: ${{ secrets.SCORECARD_TOKEN }}
+          # see https://github.com/ossf/scorecard-action#authentication-with-fine-grained-pat-optional
+          publish_results: true
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: scorecard-results
+          path: results.sarif
+          retention-days: 5
+
+      - name: Upload to code scanning
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          sarif_file: results.sarif
