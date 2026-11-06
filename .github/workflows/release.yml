@@ -1,0 +1,104 @@
+# Turns a release that is on Maven Central into a GitHub release.
+#
+# Maven Central is where the artifacts are published: Jenkins builds main, signs the bundles and
+# uploads them to the Sonatype Central Portal (see Jenkinsfile, cnf/ext/release.bnd). Once the tag
+# v<version> is pushed, this workflow waits until that version is on Maven Central, downloads the
+# jars, poms and their .asc signatures, checks them against Central's SHA-1 checksums and attaches
+# them to the GitHub release. The release carries the very bytes Maven Central serves, and the
+# signatures count for the OpenSSF Scorecard (Signed-Releases).
+#
+# The release notes come from docs/releases/<version>.md.
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to make the GitHub release for, e.g. v1.3.0'
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  github-release:
+    runs-on: ubuntu-latest
+    # Waiting for Maven Central: publishing in the Portal and the sync to repo.maven.apache.org
+    # usually take 10 to 30 minutes.
+    timeout-minutes: 180
+    permissions:
+      # Create the release and upload its assets.
+      contents: write
+    env:
+      TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+      ARTIFACTS: org.eclipse.paho.client.mqttv3 org.eclipse.paho.mqttv5.client
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.TAG }}
+          persist-credentials: false
+
+      - name: Check tag and release notes
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::'$TAG' is not a release tag v<major>.<minor>.<patch>"; exit 1; }
+          version="${TAG#v}"
+          notes="docs/releases/${version}.md"
+          [ -f "$notes" ] || { echo "::error::Release notes $notes are missing"; exit 1; }
+          group=$(sed -n 's/^maven_group_id=//p' gradle.properties)
+          [ -n "$group" ] || { echo "::error::maven_group_id not found in gradle.properties"; exit 1; }
+          {
+            echo "VERSION=$version"
+            echo "NOTES=$notes"
+            echo "GROUP_PATH=${group//.//}"
+          } >> "$GITHUB_ENV"
+
+      - name: Wait for Maven Central
+        run: |
+          set -euo pipefail
+          for artifact in $ARTIFACTS; do
+            url="https://repo.maven.apache.org/maven2/$GROUP_PATH/$artifact/$VERSION/$artifact-$VERSION.pom"
+            for i in $(seq 1 160); do
+              if curl -sfI "$url" > /dev/null; then
+                echo "$artifact $VERSION is on Maven Central"
+                continue 2
+              fi
+              echo "waiting for $url ($i)"
+              sleep 60
+            done
+            echo "::error::$artifact $VERSION did not appear on Maven Central. Was it published in the Portal (central.sonatype.com/publishing)? Re-run this workflow once it is there."
+            exit 1
+          done
+
+      - name: Download from Maven Central
+        run: |
+          set -euo pipefail
+          mkdir -p assets
+          cd assets
+          for artifact in $ARTIFACTS; do
+            base="https://repo.maven.apache.org/maven2/$GROUP_PATH/$artifact/$VERSION/$artifact-$VERSION"
+            for suffix in .jar -sources.jar -javadoc.jar .pom; do
+              file="$artifact-$VERSION$suffix"
+              curl -sSfL -o "$file" "$base$suffix"
+              echo "$(curl -sSfL "$base$suffix.sha1" | cut -c1-40)  $file" | sha1sum -c -
+              # the signature itself; Central keeps no checksum for every .asc
+              curl -sSfL -o "$file.asc" "$base$suffix.asc"
+            done
+          done
+          ls -l
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" assets/* --clobber
+          else
+            gh release create "$TAG" assets/* --verify-tag \
+              --title "Paho Java client $VERSION (Gecko build)" --notes-file "$NOTES"
+          fi
