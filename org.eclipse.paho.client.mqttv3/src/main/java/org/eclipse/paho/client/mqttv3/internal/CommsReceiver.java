@@ -12,6 +12,8 @@
  *
  * Contributors:
  *    Dave Locke - initial API and implementation and/or initial documentation
+ *    Mark Hoffmann - CONNACK timeout (issue #511)
+ *    Mark Hoffmann - stop requested without waiting
  */
 package org.eclipse.paho.client.mqttv3.internal;
 
@@ -47,6 +49,7 @@ public class CommsReceiver implements Runnable {
 	private State current_state = State.STOPPED;
 	private State target_state = State.STOPPED;
 	private final Object lifecycle = new Object();
+	private boolean stopRequested = false; // by requestStop(), stop() waits for the thread
 	private String threadName;
 	private Future<?> receiverFuture;
 
@@ -103,7 +106,22 @@ public class CommsReceiver implements Runnable {
 	}
 
 	/**
-	 * Stops the Receiver's thread.  This call will block.
+	 * Tells the Receiver's thread to stop, without waiting for it; {@link #stop()}
+	 * waits for it then.
+	 */
+	public void requestStop() {
+		synchronized (lifecycle) {
+			if (isRunning()) {
+				target_state = State.STOPPED;
+				stopRequested = true;
+			}
+		}
+	}
+
+	/**
+	 * Stops the Receiver's thread and waits for it to end. A read it is blocked in
+	 * ends only when the network module is stopped, so stop the network module
+	 * first: {@link #requestStop()}, stop the network module, {@link #stop()}.
 	 */
 	public void stop() {
 		final String methodName = "stop";
@@ -112,10 +130,12 @@ public class CommsReceiver implements Runnable {
 		synchronized (lifecycle) {
 			//@TRACE 850=stopping
 			log.fine(CLASS_NAME,methodName, "850");
-			isRunning = isRunning();
-			if (isRunning) {
+			if (isRunning()) {
 				target_state = State.STOPPED;
+				stopRequested = true;
 			}
+			isRunning = stopRequested;
+			stopRequested = false;
 		}
 		// This and the clause above will prevent a thread from waiting for itself.
 		if (isRunning) {
@@ -193,6 +213,11 @@ public class CommsReceiver implements Runnable {
                                                     // fix for bug 719
                                                     if (!clientComms.isConnected() && !clientComms.isConnecting()) {
                                                          throw new IOException("Connection is lost.");
+                                                    }
+                                                    if (clientComms.isConnackOverdue()) {
+                                                        // @TRACE 858=CONNACK not received within the connection timeout, aborting connect attempt
+                                                        log.severe(CLASS_NAME, methodName, "858");
+                                                        throw ExceptionHelper.createMqttException(MqttException.REASON_CODE_CLIENT_TIMEOUT);
                                                     }
                                                 }
 					}

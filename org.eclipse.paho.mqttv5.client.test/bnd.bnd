@@ -1,0 +1,9 @@
+# Tests of org.eclipse.paho.mqttv5.client (upstream layout: tests live in their own module). No bundle is built here.
+-nobundles: true
+-releaserepo:
+
+src: src/main/java
+testsrc: src/test/java
+
+-buildpath: \
+	org.eclipse.paho.mqttv5.client;version=snapshot

@@ -14,6 +14,8 @@
  *   Ian Craggs - MQTT 3.1.1 support
  *   Ian Craggs - fix bug 469527
  *   James Sutton - Automatic Reconnect & Offline Buffering
+ *   Mark Hoffmann - restore subscriptions after reconnect, maximum inbound packet size
+ *    Mark Hoffmann - maximum inbound packet size
  */
 package org.eclipse.paho.mqttv5.client.internal;
 
@@ -162,6 +164,11 @@ public class ConnectActionListener implements MqttActionListener {
 
 		if (reconnect) {
 			comms.notifyReconnect();
+			if (!token.getSessionPresent()) {
+				// The broker has no session for us, so every subscription made before the connection
+				// was lost is gone. Restore them before the application hears about the reconnect.
+				client.restoreSubscriptions();
+			}
 		}
 
 		if (userCallback != null) {
@@ -242,6 +249,8 @@ public class ConnectActionListener implements MqttActionListener {
 			}
 		}
 
+		// The limit applies from the first inbound packet on, the CONNACK included.
+		mqttConnection.setIncomingMaximumPacketSize(options.getMaximumPacketSize());
 		try {
 			comms.connect(options, token);
 		} catch (MqttException e) {

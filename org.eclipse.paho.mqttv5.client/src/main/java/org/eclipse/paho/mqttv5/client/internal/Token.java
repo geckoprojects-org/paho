@@ -12,9 +12,12 @@
  *   
  * Contributors:
  *   Ian Craggs - MQTT 3.1.1 support
+ *   Mark Hoffmann - DISCONNECT 0x95 on a too large packet
  */
 
 package org.eclipse.paho.mqttv5.client.internal;
+
+import java.util.concurrent.TimeUnit;
 
 import org.eclipse.paho.mqttv5.client.MqttActionListener;
 import org.eclipse.paho.mqttv5.client.MqttClientException;
@@ -343,6 +346,31 @@ public class Token {
 				}
 				throw this.exception;
 			}
+		}
+	}
+
+	/**
+	 * Waits at most the given time for the message to be written.
+	 *
+	 * @param timeoutMillis the longest time to wait
+	 * @return whether the message was written
+	 */
+	public boolean waitUntilSent(long timeoutMillis) {
+		long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
+		synchronized (sentLock) {
+			while (!sent) {
+				long remaining = TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime());
+				if (remaining <= 0) {
+					return false;
+				}
+				try {
+					sentLock.wait(remaining);
+				} catch (InterruptedException e) {
+					Thread.currentThread().interrupt();
+					return false;
+				}
+			}
+			return true;
 		}
 	}
 

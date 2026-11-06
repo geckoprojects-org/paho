@@ -69,3 +69,25 @@ client-1-tcpioteclipseorg1882
 testConnectTimeout
 
 
+
+### Gecko bnd/Gradle build
+/.gradle/
+build/
+generated/
+bin_test/
+src-gen/
+/cnf/cache/
+/cnf/localrepo/
+/cnf/release/
+# Upstream ignores these globally; the bnd workspace needs them in git.
+!gradle/wrapper/gradle-wrapper.jar
+!.project
+!.classpath
+!.settings/
+# File persistence and logs written by the broker tests (./gradlew brokerTest)
+org.eclipse.paho.*.test/paho*-*/
+org.eclipse.paho.*.test/test*/
+org.eclipse.paho.*.test/client-*/
+org.eclipse.paho.*.test/framework.log*
+# signed release written by bnd for the Central upload (cnf/ext/release.bnd)
+/dist/

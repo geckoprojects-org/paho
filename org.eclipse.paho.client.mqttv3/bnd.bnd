@@ -1,0 +1,43 @@
+Bundle-Name: Paho MQTT v3 Client (Gecko build)
+Bundle-Description: Eclipse Paho Java client for MQTT 3.1 and 3.1.1, built from \
+	https://github.com/${github-orga}/${github-project} with automatic reconnect fixes. \
+	Based on Eclipse Paho; not an official Eclipse release.
+Bundle-License: \
+	EPL-2.0;description="Eclipse Public License 2.0";link="https://www.eclipse.org/legal/epl-2.0/",\
+	BSD-3-Clause;description="Eclipse Distribution License 1.0";link="https://www.eclipse.org/org/documents/edl-v10.php"
+Bundle-Copyright: IBM Corp. and others (Eclipse Paho); Gecko build by Data In Motion Consulting GmbH
+Bundle-Vendor: Data In Motion Consulting GmbH
+
+# Paho is dual-licensed EPL-2.0 / EDL-1.0; ship its licence files instead of the fennec default.
+-includeresource.license: \
+	META-INF/LICENSE=${workspace}/LICENSE,\
+	META-INF/NOTICE=${workspace}/NOTICE,\
+	META-INF/epl-v20=${workspace}/epl-v20,\
+	META-INF/edl-v10=${workspace}/edl-v10,\
+	about.html=${workspace}/about.html
+
+# ServiceLoader registration of the network modules and the message catalogues.
+-includeresource.resources: src/main/resources
+
+# The TLS packages are only needed for ssl:// and wss:// connections.
+Import-Package: \
+	javax.net;resolution:=optional,\
+	javax.net.ssl;resolution:=optional,\
+	*
+
+# Upstream keeps ClientComms as a Maven-filtered template (${project.version}, ${build.level}).
+src: src/main/java, src-gen
+-generate: \
+	src/main/java-templates; \
+		output=src-gen; \
+		system=sh ${workspace}/cnf/scripts/expand-template.sh ${base-version} ${tstamp} src/main/java-templates src-gen
+
+# Upstream exports plus the network module SPI; internal packages stay private.
+Export-Package: \
+	org.eclipse.paho.client.mqttv3;version=${base-version},\
+	org.eclipse.paho.client.mqttv3.logging;version=${base-version},\
+	org.eclipse.paho.client.mqttv3.persist;version=${base-version},\
+	org.eclipse.paho.client.mqttv3.spi;version=${base-version},\
+	org.eclipse.paho.client.mqttv3.util;version=${base-version}
+-privatepackage: \
+	org.eclipse.paho.client.mqttv3.internal.*

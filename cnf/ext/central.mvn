@@ -1,0 +1,11 @@
+biz.aQute.bnd:biz.aQute.bnd.annotation:${bndversion}
+
+# OSGi annotations, on every buildpath through -buildpath.base of the fennec library
+org.osgi:org.osgi.annotation.versioning:1.1.2
+org.osgi:org.osgi.annotation.bundle:2.0.0
+org.osgi:org.osgi.service.component.annotations:1.5.1
+org.osgi:org.osgi.service.metatype.annotations:1.4.1
+
+# Fennec bnd libraries
+org.eclipse.fennec.bnd:org.eclipse.fennec.bnd.library:0.0.9
+org.eclipse.fennec.bnd:org.eclipse.fennec.jacoco.bnd.library:0.0.9

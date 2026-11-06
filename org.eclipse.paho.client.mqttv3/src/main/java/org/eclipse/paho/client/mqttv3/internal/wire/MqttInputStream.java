@@ -12,9 +12,12 @@
  *
  * Contributors:
  *    Dave Locke - initial API and implementation and/or initial documentation
+ *    Mark Hoffmann - maximum inbound packet size
+ *    Mark Hoffmann - buffered reads
  */
 package org.eclipse.paho.client.mqttv3.internal.wire;
 
+import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.EOFException;
@@ -38,6 +41,8 @@ public class MqttInputStream extends InputStream {
 	private final Logger log = LoggerFactory.getLogger(LoggerFactory.MQTT_CLIENT_MSG_CAT, CLASS_NAME);
 
 	private ClientState clientState = null;
+	/** Read buffer per connection; larger packet bodies are read directly into the packet array. */
+	private static final int BUFFER_SIZE = 512;
 	private DataInputStream in;	
 	private ByteArrayOutputStream bais;
 	private int remLen;
@@ -46,7 +51,9 @@ public class MqttInputStream extends InputStream {
 
 	public MqttInputStream(ClientState clientState, InputStream in) {
 		this.clientState = clientState;
-		this.in = new DataInputStream(in);		
+		// buffered: the header and the remaining length are read byte by byte, each a system call
+		// on the socket stream otherwise
+		this.in = new DataInputStream(new BufferedInputStream(in, BUFFER_SIZE));		
 		this.bais = new ByteArrayOutputStream();
 		this.remLen = -1;
 	}
@@ -102,6 +109,13 @@ public class MqttInputStream extends InputStream {
 				bais.write(first);
 				// bit silly, we decode it then encode it
 				bais.write(MqttWireMessage.encodeMBI(remLen));
+				int maxPacketSize = clientState.getMaxInboundPacketSize();
+				if (maxPacketSize > 0 && bais.size() + remLen > maxPacketSize) {
+					// checked before the packet buffer is allocated
+					// @TRACE 310=Incoming packet of {0} bytes exceeds the maximum inbound packet size of {1} bytes; closing the connection
+					log.warning(CLASS_NAME, methodName, "310", new Object[] { Integer.valueOf(bais.size() + remLen), Integer.valueOf(maxPacketSize) });
+					throw ExceptionHelper.createMqttException(MqttException.REASON_CODE_INCOMING_PACKET_TOO_LARGE);
+				}
 				packet = new byte[(int)(bais.size()+remLen)];
 				packetLen = 0;
 			}

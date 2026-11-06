@@ -12,9 +12,11 @@
  *
  * Contributors:
  *    Dave Locke - initial API and implementation and/or initial documentation
+ *    Mark Hoffmann - buffered reads
  */
 package org.eclipse.paho.mqttv5.client.wire;
 
+import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.EOFException;
@@ -41,6 +43,8 @@ public class MqttInputStream extends InputStream {
 	private Logger log = LoggerFactory.getLogger(LoggerFactory.MQTT_CLIENT_MSG_CAT, CLASS_NAME);
 
 	private MqttState clientState = null;
+	/** Read buffer per connection; larger packet bodies are read directly into the packet array. */
+	private static final int BUFFER_SIZE = 512;
 	private DataInputStream in;	
 	private ByteArrayOutputStream bais;
 	private int remLen;
@@ -49,7 +53,9 @@ public class MqttInputStream extends InputStream {
 
 	public MqttInputStream(MqttState clientState, InputStream in, String clientId) {
 		this.clientState = clientState;
-		this.in = new DataInputStream(in);		
+		// buffered: the header and the remaining length are read byte by byte, each a system call
+		// on the socket stream otherwise
+		this.in = new DataInputStream(new BufferedInputStream(in, BUFFER_SIZE));		
 		this.bais = new ByteArrayOutputStream();
 		this.remLen = -1;
 		log.setResourceName(clientId);
@@ -109,12 +115,14 @@ public class MqttInputStream extends InputStream {
 				remLen = MqttDataTypes.readVariableByteInteger(in).getValue();
 				bais.write(first);
 				bais.write(MqttWireMessage.encodeVariableByteInteger((int)remLen));
-				packet = new byte[(int)(bais.size()+remLen)];
-				if(this.clientState.getIncomingMaximumPacketSize() != null && 
-						bais.size()+remLen > this.clientState.getIncomingMaximumPacketSize() ) {
-					// Incoming packet is too large
+				Long maxPacketSize = this.clientState.getIncomingMaximumPacketSize();
+				if (maxPacketSize != null && bais.size() + remLen > maxPacketSize.longValue()) {
+					// checked before the packet buffer is allocated
+					// @TRACE 310=Incoming packet of {0} bytes exceeds the maximum inbound packet size of {1} bytes; closing the connection
+					log.warning(CLASS_NAME, methodName, "310", new Object[] { Long.valueOf(bais.size() + remLen), maxPacketSize });
 					throw ExceptionHelper.createMqttException(MqttClientException.REASON_CODE_INCOMING_PACKET_TOO_LARGE);
 				}
+				packet = new byte[(int)(bais.size()+remLen)];
 				packetLen = 0;
 			}
 			

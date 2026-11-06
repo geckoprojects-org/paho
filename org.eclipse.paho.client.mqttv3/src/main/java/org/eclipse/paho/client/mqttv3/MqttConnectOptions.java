@@ -14,6 +14,7 @@
  *    Dave Locke - initial API and implementation and/or initial documentation
  *    Ian Craggs - MQTT 3.1.1 support
  *    James Sutton - Automatic Reconnect & Offline Buffering
+ *    Mark Hoffmann - automaticResubscribe option, maximum inbound packet size, no secrets in log output, {xor} documented as obfuscation only, queued publish limit
  */
 package org.eclipse.paho.client.mqttv3;
 
@@ -42,6 +43,14 @@ public class MqttConnectOptions {
 	 */
 	public static final int MAX_INFLIGHT_DEFAULT = 10;
 	/**
+	 * The default maximum size of an inbound packet in bytes (1 MiB).
+	 */
+	public static final int MAX_INBOUND_PACKET_SIZE_DEFAULT = 1024 * 1024;
+	/**
+	 * The default maximum number of publishes waiting to be sent.
+	 */
+	public static final int MAX_QUEUED_MESSAGES_DEFAULT = 10000;
+	/**
 	 * The default clean session setting if one is not specified
 	 */
 	public static final boolean CLEAN_SESSION_DEFAULT = true;
@@ -60,6 +69,8 @@ public class MqttConnectOptions {
 
 	private int keepAliveInterval = KEEP_ALIVE_INTERVAL_DEFAULT;
 	private int maxInflight = MAX_INFLIGHT_DEFAULT;
+	private int maxInboundPacketSize = MAX_INBOUND_PACKET_SIZE_DEFAULT;
+	private int maxQueuedMessages = MAX_QUEUED_MESSAGES_DEFAULT;
 	private String willDestination = null;
 	private MqttMessage willMessage = null;
 	private String userName;
@@ -73,6 +84,7 @@ public class MqttConnectOptions {
 	private String[] serverURIs = null;
 	private int mqttVersion = MQTT_VERSION_DEFAULT;
 	private boolean automaticReconnect = false;
+	private boolean automaticResubscribe = true;
 	private int maxReconnectDelay = 128000;
 	private boolean skipPortDuringHandshake = false;
 	private Map<String, String> customWebSocketHeaders = null;
@@ -301,6 +313,73 @@ public class MqttConnectOptions {
 	}
 
 	/**
+	 * Returns the maximum size of an inbound packet in bytes.
+	 *
+	 * @see #setMaxInboundPacketSize(int)
+	 * @return the maximum inbound packet size, 0 for no limit
+	 */
+	public int getMaxInboundPacketSize() {
+		return maxInboundPacketSize;
+	}
+
+	/**
+	 * Sets the maximum size in bytes of a packet the client accepts from the
+	 * server, fixed header included. The client allocates the memory for a packet
+	 * as soon as it has read its length, so this limit is what keeps a server, or
+	 * anyone on an unprotected connection, from making it allocate up to 256 MiB
+	 * for a single packet. A larger packet closes the connection with
+	 * {@link MqttException#REASON_CODE_INCOMING_PACKET_TOO_LARGE}; MQTT 3.1.1 has
+	 * no way to tell the server about the limit, so a broker that keeps such a
+	 * message for the client sends it again after every reconnect.
+	 * <p>
+	 * The default value is {@link #MAX_INBOUND_PACKET_SIZE_DEFAULT} (1 MiB).
+	 * </p>
+	 *
+	 * @param maxInboundPacketSize
+	 *            the maximum packet size in bytes, 0 for no limit beyond the
+	 *            protocol's 256 MiB
+	 */
+	public void setMaxInboundPacketSize(int maxInboundPacketSize) {
+		if (maxInboundPacketSize < 0) {
+			throw new IllegalArgumentException();
+		}
+		this.maxInboundPacketSize = maxInboundPacketSize;
+	}
+
+	/**
+	 * Returns the maximum number of publishes waiting to be sent.
+	 *
+	 * @see #setMaxQueuedMessages(int)
+	 * @return the maximum number of queued publishes, 0 for no limit
+	 */
+	public int getMaxQueuedMessages() {
+		return maxQueuedMessages;
+	}
+
+	/**
+	 * Sets the maximum number of publishes that wait in the client to be written to
+	 * the network. The in-flight limit ({@link #setMaxInflight(int)}) counts only
+	 * the publishes written already, so while the connection stalls (the peer does
+	 * not read, a full TCP window) every further publish waits in memory until
+	 * keep-alive closes the connection; for QoS 0 nothing else limits them. When
+	 * this many publishes are waiting, a further publish fails with
+	 * {@link MqttException#REASON_CODE_MAX_INFLIGHT}.
+	 * <p>
+	 * The default value is {@link #MAX_QUEUED_MESSAGES_DEFAULT}, far above what a
+	 * working connection queues; lower it on devices with a small heap.
+	 * </p>
+	 *
+	 * @param maxQueuedMessages
+	 *            the maximum number of queued publishes, 0 for no limit
+	 */
+	public void setMaxQueuedMessages(int maxQueuedMessages) {
+		if (maxQueuedMessages < 0) {
+			throw new IllegalArgumentException();
+		}
+		this.maxQueuedMessages = maxQueuedMessages;
+	}
+
+	/**
 	 * Returns the connection timeout value.
 	 *
 	 * @see #setConnectionTimeout(int)
@@ -401,12 +480,12 @@ public class MqttConnectOptions {
 	 *
 	 * <dt>com.ibm.ssl.keyStorePassword</dt>
 	 * <dd>The password for the KeyStore object that you want the KeyManager to use.
-	 * The password can either be in plain-text, or may be obfuscated using the
-	 * static method:
-	 * <code>com.ibm.micro.security.Password.obfuscate(char[] password)</code>. This
-	 * obfuscates the password using a simple and insecure XOR and Base64 encoding
-	 * mechanism. Note that this is only a simple scrambler to obfuscate clear-text
-	 * passwords.</dd>
+	 * The password can either be in plain-text, or in the <code>{xor}</code>
+	 * form of <code>org.eclipse.paho.client.mqttv3.internal.security.SSLSocketFactoryFactory.obfuscate(char[])</code>.
+	 * That form is a simple XOR and Base64 encoding, not protection: anyone who
+	 * has the configuration has the password. To keep the password out of the
+	 * configuration, build the <code>SSLSocketFactory</code> from a secret store
+	 * and pass it with {@link #setSocketFactory(javax.net.SocketFactory)}.</dd>
 	 *
 	 * <dt>com.ibm.ssl.keyStoreType</dt>
 	 * <dd>Type of key store, for example "PKCS12", "JKS", or "JCEKS".</dd>
@@ -420,12 +499,12 @@ public class MqttConnectOptions {
 	 *
 	 * <dt>com.ibm.ssl.trustStorePassword</dt>
 	 * <dd>The password for the TrustStore object that you want the TrustManager to
-	 * use. The password can either be in plain-text, or may be obfuscated using the
-	 * static method:
-	 * <code>com.ibm.micro.security.Password.obfuscate(char[] password)</code>. This
-	 * obfuscates the password using a simple and insecure XOR and Base64 encoding
-	 * mechanism. Note that this is only a simple scrambler to obfuscate clear-text
-	 * passwords.</dd>
+	 * use. The password can either be in plain-text, or in the <code>{xor}</code>
+	 * form of <code>org.eclipse.paho.client.mqttv3.internal.security.SSLSocketFactoryFactory.obfuscate(char[])</code>.
+	 * That form is a simple XOR and Base64 encoding, not protection: anyone who
+	 * has the configuration has the password. To keep the password out of the
+	 * configuration, build the <code>SSLSocketFactory</code> from a secret store
+	 * and pass it with {@link #setSocketFactory(javax.net.SocketFactory)}.</dd>
 	 *
 	 * <dt>com.ibm.ssl.trustStoreType</dt>
 	 * <dd>The type of KeyStore object that you want the default TrustManager to
@@ -644,6 +723,36 @@ public class MqttConnectOptions {
 		this.automaticReconnect = automaticReconnect;
 	}
 
+	/**
+	 * Returns whether subscriptions are restored after an automatic reconnect that came back
+	 * without a session. The default is true.
+	 *
+	 * @return the automatic resubscribe flag
+	 */
+	public boolean isAutomaticResubscribe() {
+		return automaticResubscribe;
+	}
+
+	/**
+	 * Sets whether the client re-issues its subscriptions after an automatic reconnect whose
+	 * CONNACK reports no session present. With a clean session the broker drops all subscriptions
+	 * on disconnect and the client drops its message listeners, so without this a reconnected
+	 * client stays silent until the application subscribes again. Set to false to take care of
+	 * that yourself in {@link MqttCallbackExtended#connectComplete(boolean, String)}. Only relevant together
+	 * with {@link #setAutomaticReconnect(boolean)}.
+	 *
+	 * <p>
+	 * While enabled, the client retains every topic filter and message listener it subscribed until
+	 * it is unsubscribed, or the client is disconnected or closed. Applications that subscribe to many
+	 * short-lived topic filters should unsubscribe them or disable this to avoid retaining them.
+	 *
+	 * @param automaticResubscribe
+	 *            if true (the default), subscriptions are restored automatically
+	 */
+	public void setAutomaticResubscribe(boolean automaticResubscribe) {
+		this.automaticResubscribe = automaticResubscribe;
+	}
+
 	public int getExecutorServiceTimeout() {
 		return executorServiceTimeout;
 	}
@@ -687,6 +796,8 @@ public class MqttConnectOptions {
 		p.put("CleanSession", Boolean.valueOf(isCleanSession()));
 		p.put("ConTimeout", Integer.valueOf(getConnectionTimeout()));
 		p.put("KeepAliveInterval", Integer.valueOf(getKeepAliveInterval()));
+		p.put("MaxInboundPacketSize", Integer.valueOf(getMaxInboundPacketSize()));
+		p.put("MaxQueuedMessages", Integer.valueOf(getMaxQueuedMessages()));
 		p.put("UserName", (getUserName() == null) ? strNull : getUserName());
 		p.put("WillDestination", (getWillDestination() == null) ? strNull : getWillDestination());
 		if (getSocketFactory() == null) {
@@ -697,10 +808,22 @@ public class MqttConnectOptions {
 		if (getSSLProperties() == null) {
 			p.put("SSLProperties", strNull);
 		} else {
-			p.put("SSLProperties", getSSLProperties());
+			p.put("SSLProperties", hidePasswords(getSSLProperties()));
 		}
 		p.put("SkipPortDuringHandshake", isSkipPortDuringHandshake());
 		return p;
+	}
+
+	/**
+	 * A copy of the SSL properties for diagnostic output, with the values of
+	 * all password properties hidden.
+	 */
+	private static Properties hidePasswords(Properties properties) {
+		Properties hidden = new Properties();
+		for (String key : properties.stringPropertyNames()) {
+			hidden.put(key, key.toLowerCase().contains("password") ? "<hidden>" : properties.getProperty(key));
+		}
+		return hidden;
 	}
 
 	/**

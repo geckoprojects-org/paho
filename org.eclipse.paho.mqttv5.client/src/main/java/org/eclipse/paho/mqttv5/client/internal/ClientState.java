@@ -19,6 +19,14 @@
  *    James Sutton - Automatic Reconnect & Offline Buffering
  *    Jens Reimann - Fix issue #370
  *    James Sutton - Mqttv5 - Outgoing Topic Aliases
+ *    Mark Hoffmann - maximum inbound packet size
+ *    Mark Hoffmann - inbound QoS 2 logged at FINE
+ *    Mark Hoffmann - offline buffer releases message IDs and stored messages
+ *    Mark Hoffmann - outgoing topic alias counter bounded
+ *    Mark Hoffmann - queued publish limit
+ *    Mark Hoffmann - restored QoS 0 messages sent once
+ *    Mark Hoffmann - incoming topic aliases resolved
+ *    Mark Hoffmann - outgoing topic aliases applied when written
  */
 package org.eclipse.paho.mqttv5.client.internal;
 
@@ -124,6 +132,7 @@ public class ClientState implements MqttState {
 
 	private int actualInFlight = 0;
 	private int inFlightPubRels = 0;
+	private int maxQueuedMessages = 0;
 
 	private final Object queueLock = new Object();
 	private final Object quiesceLock = new Object();
@@ -179,6 +188,10 @@ public class ClientState implements MqttState {
 		this.mqttConnection = mqttConnection;
 
 		restoreState();
+	}
+
+	protected void setMaxQueuedMessages(int maxQueuedMessages) {
+		this.maxQueuedMessages = maxQueuedMessages;
 	}
 
 	protected void setCleanStart(boolean cleanStart) {
@@ -331,6 +344,23 @@ public class ClientState implements MqttState {
 		}
 
 		return newList;
+	}
+
+	/**
+	 * Frees what a message holds that leaves the offline buffer without being sent (discarded
+	 * as the oldest, or refused because the buffer is full): its message ID and, if it was stored,
+	 * its stored copy.
+	 *
+	 * @param message the buffered message
+	 * @param stored whether {@link #persistBufferedMessage(MqttWireMessage)} stored it
+	 */
+	public void discardBufferedMessage(MqttWireMessage message, boolean stored) {
+		if (stored) {
+			unPersistBufferedMessage(message);
+		}
+		if (message.getMessageId() != 0) {
+			releaseMessageId(message.getMessageId());
+		}
 	}
 
 	/**
@@ -496,6 +526,42 @@ public class ClientState implements MqttState {
 		this.pendingMessages = reOrder(pendingMessages);
 	}
 
+	/**
+	 * Applies the topic alias of the current connection to a publish that is about to be written: a
+	 * new alias goes out with the topic, a known one replaces it. The stored message keeps its
+	 * topic, since aliases are only valid on the connection that set them (a publish resent after a
+	 * reconnect needs its topic again); the caller puts the returned topic back after the write.
+	 *
+	 * @param message the message about to be written
+	 * @return the topic taken off the message for the write, or null
+	 */
+	String applyOutgoingTopicAlias(MqttWireMessage message) {
+		if (!(message instanceof MqttPublish) || this.mqttConnection == null
+				|| this.mqttConnection.getOutgoingTopicAliasMaximum() <= 0) {
+			return null;
+		}
+		MqttPublish publish = (MqttPublish) message;
+		String topic = publish.getTopicName();
+		if (topic == null || topic.isEmpty()) {
+			return null;
+		}
+		Integer alias = outgoingTopicAliases.get(topic);
+		if (alias != null) {
+			publish.getProperties().setTopicAlias(alias);
+			publish.setTopicName(null);
+			return topic;
+		}
+		int next = this.mqttConnection.getNextOutgoingTopicAlias();
+		if (next > 0) {
+			publish.getProperties().setTopicAlias(next);
+			outgoingTopicAliases.put(topic, next);
+		} else {
+			// all aliases taken; one from an earlier connection is not valid here
+			publish.getProperties().setTopicAlias(null);
+		}
+		return null;
+	}
+
 	/*
 	 * (non-Javadoc)
 	 * 
@@ -510,23 +576,8 @@ public class ClientState implements MqttState {
 		if (message.isMessageIdRequired() && (message.getMessageId() == 0)) {
 			message.setMessageId(getNextMessageId());
 		}
-		// Set Topic Alias if required
-		if (message instanceof MqttPublish && ((MqttPublish) message).getTopicName() != null 
-	        		&& this.mqttConnection != null && this.mqttConnection.getOutgoingTopicAliasMaximum() > 0) {
-                        String topic = ((MqttPublish) message).getTopicName();
-			if (outgoingTopicAliases.containsKey(topic)) {
-				// Existing Topic Alias, Assign it and remove the topic string
-				((MqttPublish) message).getProperties().setTopicAlias(outgoingTopicAliases.get(topic));
-				((MqttPublish) message).setTopicName(null);
-			} else {
-				int nextOutgoingTopicAlias = this.mqttConnection.getNextOutgoingTopicAlias();
-				if (nextOutgoingTopicAlias <= this.mqttConnection.getOutgoingTopicAliasMaximum()) {
-					// Create a new Topic Alias and increment the counter
-					((MqttPublish) message).getProperties().setTopicAlias(nextOutgoingTopicAlias);
-					outgoingTopicAliases.put(((MqttPublish) message).getTopicName(), nextOutgoingTopicAlias);
-				}
-			}
-		}
+		// Topic aliases are applied when the publish is written (applyOutgoingTopicAlias): they
+		// belong to the network connection, the stored message keeps its topic
 
 		if (token != null) {
 			try {
@@ -540,6 +591,13 @@ public class ClientState implements MqttState {
 				if (actualInFlight >= this.mqttConnection.getReceiveMaximum()) {
 					// @TRACE 613= sending {0} msgs at max inflight window
 					log.fine(CLASS_NAME, methodName, "613", new Object[] { Integer.valueOf(actualInFlight) });
+
+					throw new MqttException(MqttClientException.REASON_CODE_MAX_INFLIGHT);
+				}
+				// the in-flight count leaves out the queued publishes, they pile up while the link stalls
+				if (maxQueuedMessages > 0 && pendingMessages.size() >= maxQueuedMessages) {
+					// @TRACE 614=sending {0} msgs at max queued messages
+					log.fine(CLASS_NAME, methodName, "614", new Object[] { Integer.valueOf(pendingMessages.size()) });
 
 					throw new MqttException(MqttClientException.REASON_CODE_MAX_INFLIGHT);
 				}
@@ -659,6 +717,18 @@ public class ClientState implements MqttState {
 	 *             if an exception occurs whilst removing the message
 	 */
 	protected void undo(MqttPublish message) throws MqttPersistenceException {
+		undo(message, false);
+	}
+
+	/**
+	 * Removes the message from the outbound queue and persistence.
+	 *
+	 * @param message the {@link MqttPublish} message to be removed
+	 * @param keepMessageId true for a message from the offline buffer: its stored copy is keyed
+	 *            by the message ID, which it keeps for the retry
+	 * @throws MqttPersistenceException if an exception occurs whilst removing the message
+	 */
+	protected void undo(MqttPublish message, boolean keepMessageId) throws MqttPersistenceException {
 		final String methodName = "undo";
 		synchronized (queueLock) {
 			// @TRACE 618=key={0} QoS={1}
@@ -673,7 +743,7 @@ public class ClientState implements MqttState {
 			pendingMessages.removeElement(message);
 			persistence.remove(getSendPersistenceKey(message));
 			tokenStore.removeToken(message);
-			if (message.getMessage().getQos() > 0) {
+			if (message.getMessage().getQos() > 0 && !keepMessageId) {
 				// Free this message Id so it can be used again
 				releaseMessageId(message.getMessageId());
 				// Set the messageId to 0 so if it's ever retried, it will get a new messageId
@@ -935,12 +1005,29 @@ public class ClientState implements MqttState {
 			if (((MqttPublish) message).getMessage().getQos() == 0) {
 				// once a QoS 0 message is sent we can clean up its records straight away as
 				// we won't be hearing about it again
+				// a restored one (outboundQoS0) is queued again on every CONNACK otherwise
+				outboundQoS0.remove(Integer.valueOf(message.getMessageId()), message);
 				token.internalTok.markComplete(null, null);
 				callback.asyncOperationComplete(token);
 				decrementInFlight();
 				releaseMessageId(message.getMessageId());
 				tokenStore.removeToken(message);
 				checkQuiesceLock();
+			}
+		}
+	}
+
+	/**
+	 * Frees the in-flight slot of the QoS 1 or QoS 2 publish an acknowledgement (PUBACK, PUBCOMP)
+	 * completes. Idempotent: only the first call for a message decrements the in-flight count, so
+	 * notifyResult and notifyComplete can both call it.
+	 */
+	private void releaseInflightSlot(MqttAck ack) {
+		synchronized (queueLock) {
+			Integer messageId = Integer.valueOf(ack.getMessageId());
+			Object released = ack instanceof MqttPubAck ? outboundQoS1.remove(messageId) : outboundQoS2.remove(messageId);
+			if (released != null) {
+				decrementInFlight();
 			}
 		}
 	}
@@ -1147,7 +1234,7 @@ public class ClientState implements MqttState {
 			MqttPubComp pubComp = new MqttPubComp(MqttReturnCode.RETURN_CODE_SUCCESS, pubRel.getMessageId(),
 					new MqttProperties());
 			// @TRACE 668=Creating MqttPubComp: {0}
-			log.info(CLASS_NAME, methodName, "668", new Object[] { pubComp.toString() });
+			log.fine(CLASS_NAME, methodName, "668", new Object[] { pubComp });
 			this.send(pubComp, null);
 		}
 	}
@@ -1190,15 +1277,16 @@ public class ClientState implements MqttState {
 
 					}
 
-					// Is this alias being sent with a topic string?
-					if (send.getTopicName() != null) {
+					// Is this alias being sent with a topic string? An alias alone comes with an
+					// empty one (MQTT 5.0, 3.3.2.3.4)
+					if (send.getTopicName() != null && !send.getTopicName().isEmpty()) {
 						// @TRACE 652=Setting Incoming New Topic Alias alias={0}, topicName={1}
 						log.fine(CLASS_NAME, methodName, "652", new Object[] {
 								Integer.valueOf(send.getProperties().getTopicAlias()), send.getTopicName() });
 						incomingTopicAliases.put(send.getProperties().getTopicAlias(), send.getTopicName());
 					} else {
 						// No Topic String, so must be in incomingTopicAliases.
-						if (incomingTopicAliases.contains(incomingTopicAlias)) {
+						if (incomingTopicAliases.containsKey(incomingTopicAlias)) {
 							send.setTopicName(incomingTopicAliases.get(incomingTopicAlias));
 						} else {
 							// @TRACE 654=Unknown Topic Alias: Incoming Alias={1}
@@ -1268,8 +1356,7 @@ public class ClientState implements MqttState {
 				// QoS 1 - user notified now remove from persistence...
 				persistence.remove(getSendPersistenceKey(message));
 				persistence.remove(getSendBufferedPersistenceKey(message));
-				outboundQoS1.remove(Integer.valueOf(ack.getMessageId()));
-				decrementInFlight();
+				releaseInflightSlot(ack); // usually done already in notifyResult
 				releaseMessageId(message.getMessageId());
 				tokenStore.removeToken(message);
 				// @TRACE 650=removed Qos 1 publish. key={0}
@@ -1279,10 +1366,9 @@ public class ClientState implements MqttState {
 				persistence.remove(getSendPersistenceKey(message));
 				persistence.remove(getSendConfirmPersistenceKey(message));
 				persistence.remove(getSendBufferedPersistenceKey(message));
-				outboundQoS2.remove(Integer.valueOf(ack.getMessageId()));
+				releaseInflightSlot(ack); // usually done already in notifyResult
 
 				inFlightPubRels--;
-				decrementInFlight();
 				releaseMessageId(message.getMessageId());
 				tokenStore.removeToken(message);
 
@@ -1314,6 +1400,13 @@ public class ClientState implements MqttState {
 		final String methodName = "notifyResult";
 		// unblock any threads waiting on the token
 		token.internalTok.markComplete(ack, ex);
+		if (ack instanceof MqttPubAck || ack instanceof MqttPubComp) {
+			// Free the in-flight slot before the waiter wakes up: the rest of the clean-up
+			// runs later on the callback thread, and an application that publishes its
+			// next message right away would otherwise still find the slot taken
+			// ("Too many publishes in progress").
+			releaseInflightSlot((MqttAck) ack);
+		}
 		token.internalTok.notifyComplete();
 
 		// Let the user know an async operation has completed and then remove the token
@@ -1560,11 +1653,11 @@ public class ClientState implements MqttState {
 	}
 	
 	public Long getOutgoingMaximumPacketSize() {
-		return this.mqttConnection.getIncomingMaximumPacketSize();
+		return this.mqttConnection.getOutgoingMaximumPacketSize();
 	}
 	
 	public Long getIncomingMaximumPacketSize() {
-		return this.mqttConnection.getOutgoingMaximumPacketSize();
+		return this.mqttConnection.getIncomingMaximumPacketSize();
 	}
 
 	/**

@@ -16,9 +16,17 @@
  *    Ian Craggs - ack control (bug 472172)
  *    James Sutton - checkForActivity Token (bug 473928)
  *    James Sutton - Automatic Reconnect & Offline Buffering.
+ *    Mark Hoffmann - CONNACK timeout (issue #511)
+ *    Mark Hoffmann - maximum inbound packet size
+ *    Mark Hoffmann - offline buffer releases message IDs and stored messages
+ *    Mark Hoffmann - offline buffer sent without busy-spinning
+ *    Mark Hoffmann - disconnect after a reconnect that outlived disconnect()
+ *    Mark Hoffmann - queued publish limit
+ *    Mark Hoffmann - no read timeout once connected, network module stopped before joining the receiver
  */
 package org.eclipse.paho.client.mqttv3.internal;
 
+import java.io.IOException;
 import java.util.Enumeration;
 import java.util.Properties;
 import java.util.Vector;
@@ -85,6 +93,8 @@ public class ClientComms {
 	private DisconnectedMessageBuffer disconnectedMessageBuffer;
 
 	private ExecutorService executorService;
+	private volatile boolean connackPending; // a connect attempt is waiting for its CONNACK
+	private volatile long connackDeadlineNanos; // ... and must have it by then, see armConnackDeadline
 
 	/**
 	 * Creates a new ClientComms object, using the specified module to handle
@@ -143,6 +153,14 @@ public class ClientComms {
 	 * @throws MqttException
 	 */
 	void internalSend(MqttWireMessage message, MqttToken token) throws MqttException {
+		internalSend(message, token, false);
+	}
+
+	/**
+	 * @param buffered true for a message from the offline buffer, which keeps its message ID when
+	 *            it is refused
+	 */
+	private void internalSend(MqttWireMessage message, MqttToken token, boolean buffered) throws MqttException {
 		final String methodName = "internalSend";
 		//@TRACE 200=internalSend key={0} message={1} token={2}
 		log.fine(CLASS_NAME, methodName, "200", new Object[]{message.getKey(), message, token});
@@ -164,7 +182,7 @@ public class ClientComms {
 		} catch(MqttException e) {
 			token.internalTok.setClient(null); // undo client setting on error
 			if (message instanceof MqttPublish) {
-				this.clientState.undo((MqttPublish)message);
+				this.clientState.undo((MqttPublish)message, buffered);
 			}
 			throw e;
 		}
@@ -185,22 +203,14 @@ public class ClientComms {
 			if(disconnectedMessageBuffer != null && disconnectedMessageBuffer.getMessageCount() != 0){
 				//@TRACE 507=Client Connected, Offline Buffer available, but not empty. Adding message to buffer. message={0}
 				log.fine(CLASS_NAME, methodName, "507", new Object[] {message.getKey()});
-				if(disconnectedMessageBuffer.isPersistBuffer()){
-					if (message instanceof MqttPublish) {
-						this.clientState.persistBufferedMessage(message);
-					}
-				}
-				disconnectedMessageBuffer.putMessage(message, token);
+				bufferMessage(message, token);
 			} else {
 				this.internalSend(message, token);
 			}
 		} else if(disconnectedMessageBuffer != null) {
 			//@TRACE 508=Offline Buffer available. Adding message to buffer. message={0}
 			log.fine(CLASS_NAME, methodName, "508", new Object[] {message.getKey()});
-			if(disconnectedMessageBuffer.isPersistBuffer()){
-				this.clientState.persistBufferedMessage(message);
-			}
-			disconnectedMessageBuffer.putMessage(message, token);
+			bufferMessage(message, token);
 		} else {
 			//@TRACE 208=failed: not connected
 			log.fine(CLASS_NAME, methodName, "208");
@@ -216,6 +226,23 @@ public class ClientComms {
 	 */
 	public boolean removeMessage(IMqttDeliveryToken token) throws MqttException {
 		return this.clientState.removeMessage(token);
+	}
+
+	/**
+	 * Adds the message to the offline buffer, stored if so configured. A message the buffer refuses
+	 * releases what it took.
+	 */
+	private void bufferMessage(MqttWireMessage message, MqttToken token) throws MqttException {
+		boolean stored = disconnectedMessageBuffer.isPersistBuffer() && message instanceof MqttPublish;
+		if (stored) {
+			this.clientState.persistBufferedMessage(message);
+		}
+		try {
+			disconnectedMessageBuffer.putMessage(message, token);
+		} catch (MqttException e) {
+			this.clientState.discardBufferedMessage(message, stored);
+			throw e;
+		}
 	}
 
 	/**
@@ -294,6 +321,8 @@ public class ClientComms {
                 this.clientState.setKeepAliveSecs(conOptions.getKeepAliveInterval());
                 this.clientState.setCleanSession(conOptions.isCleanSession());
                 this.clientState.setMaxInflight(conOptions.getMaxInflight());
+                this.clientState.setMaxInboundPacketSize(conOptions.getMaxInboundPacketSize());
+                this.clientState.setMaxQueuedMessages(conOptions.getMaxQueuedMessages());
 
 				tokenStore.open();
 				ConnectBG conbg = new ConnectBG(this, token, connect, executorService);
@@ -315,6 +344,21 @@ public class ClientComms {
 		}
 	}
 
+	/**
+	 * The receiver needs its read timeout only until the CONNACK (deadline check);
+	 * once connected, a TCP network module lets it block until data arrives or the
+	 * module is stopped, so that an idle client does not wake up every second.
+	 */
+	private void connected(NetworkModule networkModule) {
+		if (networkModule instanceof TCPNetworkModule) {
+			try {
+				((TCPNetworkModule) networkModule).connected();
+			} catch (IOException e) {
+				// keeps the read timeout
+			}
+		}
+	}
+
 	public void connectComplete( MqttConnack cack, MqttException mex) throws MqttException {
 		final String methodName = "connectComplete";
 		int rc = cack.getReturnCode();
@@ -325,6 +369,8 @@ public class ClientComms {
 				log.fine(CLASS_NAME,methodName,"215");
 
 				conState = CONNECTED;
+				clearConnackDeadline();
+				connected(networkModules[networkModuleIndex]);
 				return;
 			}
 		}
@@ -355,6 +401,7 @@ public class ClientComms {
 				return;
 			}
 			stoppingComms = true;
+			clearConnackDeadline();
 
 			//@TRACE 216=state=DISCONNECTING
 			log.fine(CLASS_NAME,methodName,"216");
@@ -369,12 +416,19 @@ public class ClientComms {
 			token.internalTok.setException(reason);
 		}
 
+		// A callback may be waiting for one of the outstanding tokens; wake it before waiting
+		// for the callback thread below, see releaseTokenWaiters.
+		releaseTokenWaiters(token, reason);
+
 		// Stop the thread that is used to call the user back
 		// when actions complete
 		if (callback!= null) {callback.stop(); }
 
-		// Stop the thread that handles inbound work from the network
-		if (receiver != null) {receiver.stop();}
+		// Stop the thread that handles inbound work from the network: tell it to stop,
+		// stop the network module, which ends the read it is blocked in, then wait for it.
+		// Waiting first would last until the read times out, and once connected there is
+		// no read timeout (see connected).
+		if (receiver != null) {receiver.requestStop();}
 		
 		// Stop the network module, send and receive now not possible
 		try {
@@ -387,6 +441,8 @@ public class ClientComms {
 		} catch (Exception ioe) {
 			// Ignore as we are shutting down
 		}
+
+		if (receiver != null) {receiver.stop();}
 
 		// Stop any new tokens being saved by app and throwing an exception if they do
 		tokenStore.quiesce(new MqttException(MqttException.REASON_CODE_CLIENT_DISCONNECTING));
@@ -451,6 +507,38 @@ public class ClientComms {
 				} catch (Exception e) { // ignore any errors as closing
 				}
 			}
+		}
+	}
+
+
+	/**
+	 * Wakes threads waiting for an outstanding token, before shutdownConnection waits for the
+	 * callback thread to finish. Without this a callback that waits for a token, e.g. a QoS 1
+	 * publish from messageArrived (which the MqttCallback documentation allows), and a connection
+	 * loss block each other for good: callback.stop() waits for the callback, the callback waits for
+	 * its token, and the token would only be failed afterwards (handleOldTokens), on the callback
+	 * thread. The client then never reconnects.
+	 * <p>
+	 * The tokens get the exception resolveOldTokens would set later, so waiters see the same result,
+	 * only earlier; a token whose acknowledgement has arrived completes normally. Listener callbacks
+	 * stay with handleOldTokens. The connect and disconnect tokens are notified at the end of the
+	 * shutdown as before.
+	 */
+	private void releaseTokenWaiters(MqttToken shutdownToken, MqttException reason) {
+		MqttException shutReason = reason != null ? reason : new MqttException(MqttException.REASON_CODE_CLIENT_DISCONNECTING);
+		Enumeration outstanding = tokenStore.getOutstandingTokens().elements();
+		while (outstanding.hasMoreElements()) {
+			MqttToken tok = (MqttToken) outstanding.nextElement();
+			String key = tok.internalTok.getKey();
+			if (tok == shutdownToken || MqttConnect.KEY.equals(key) || MqttDisconnect.KEY.equals(key)) {
+				continue;
+			}
+			synchronized (tok) {
+				if (!tok.isComplete() && !tok.internalTok.isCompletePending() && tok.getException() == null) {
+					tok.internalTok.setException(shutReason);
+				}
+			}
+			tok.internalTok.notifyComplete();
 		}
 	}
 
@@ -522,6 +610,25 @@ public class ClientComms {
 			log.fine(CLASS_NAME,methodName,"218");
 			conState = DISCONNECTING;
 			DisconnectBG discbg = new DisconnectBG(disconnect,quiesceTimeout,token, executorService);
+			discbg.start();
+		}
+	}
+
+	/**
+	 * Disconnects after an automatic reconnect attempt that completed although the application
+	 * had disconnected meanwhile. Unlike {@link #disconnect(MqttDisconnect, long, MqttToken)} it may
+	 * run on the callback thread: nothing waits for the token there.
+	 *
+	 * @param disconnect the DISCONNECT to send
+	 * @param token the token of the disconnect
+	 */
+	public void disconnectAfterReconnect(MqttDisconnect disconnect, MqttToken token) {
+		synchronized (conLock) {
+			if (!isConnected()) {
+				return;
+			}
+			conState = DISCONNECTING;
+			DisconnectBG discbg = new DisconnectBG(disconnect, 0, token, executorService);
 			discbg.start();
 		}
 	}
@@ -677,6 +784,31 @@ public class ClientComms {
 
 
 
+	/**
+	 * Starts the clock for the CONNACK. connectionTimeout so far only covered the socket connect
+	 * and the TLS handshake; an attempt whose TCP connection came up but whose CONNACK never
+	 * arrives stayed in CONNECTING forever, because the receiver keeps looping on read timeouts
+	 * while connecting, the ping sender only starts once connected, and the reconnect cycle only
+	 * moves on from onSuccess/onFailure of the attempt. Half-open connections on mobile networks
+	 * trigger exactly that. The receiver thread, awake once a second anyway, checks the deadline
+	 * through isConnackOverdue(); no additional thread or timer is involved. A connectionTimeout of 0
+	 * keeps waiting indefinitely, as before.
+	 */
+	private void armConnackDeadline() {
+		int timeout = conOptions == null ? 0 : conOptions.getConnectionTimeout();
+		connackDeadlineNanos = System.nanoTime() + timeout * 1000000000L;
+		connackPending = timeout > 0;
+	}
+
+	private void clearConnackDeadline() {
+		connackPending = false;
+	}
+
+	/** True while a connect attempt is pending whose CONNACK is overdue. */
+	public boolean isConnackOverdue() {
+		return connackPending && System.nanoTime() - connackDeadlineNanos > 0 && isConnecting();
+	}
+
 	// Kick off the connect processing in the background so that it does not block. For instance
 	// the socket could take time to create.
 	private class ConnectBG implements Runnable {
@@ -730,6 +862,7 @@ public class ClientComms {
 				sender.start("MQTT Snd: "+getClient().getClientId(), executorService);
 				callback.start("MQTT Call: "+getClient().getClientId(), executorService);
 				internalSend(conPacket, conToken);
+				armConnackDeadline();
 			} catch (MqttException ex) {
 				//@TRACE 212=connect failed: unexpected exception
 				log.fine(CLASS_NAME, methodName, "212", null, ex);
@@ -892,9 +1025,8 @@ public class ClientComms {
 
 		@Override
 		public void messageDiscarded(MqttWireMessage message) {
-			if(disconnectedMessageBuffer.isPersistBuffer()) {
-				clientState.unPersistBufferedMessage(message);
-			}
+			clientState.discardBufferedMessage(message,
+					disconnectedMessageBuffer.isPersistBuffer() && message instanceof MqttPublish);
 		}
 	}
 
@@ -909,15 +1041,11 @@ public class ClientComms {
 		
 		public void publishBufferedMessage(BufferedMessage bufferedMessage) throws MqttException {
 			if (isConnected()) {
-				// First pass at making sure that we don't flood the in-flight messages
-				while(clientState.getActualInFlight() >= (clientState.getMaxInFlight()-3)){
-					// We need to Yield to the other threads to allow the in flight messages to clear
-					Thread.yield();
-					
-				}
+				// A full in-flight window is reported as MAX_INFLIGHT; the drain loop waits and
+				// tries again, the message keeps its ID
 				//@TRACE 510=Publishing Buffered message message={0}
 				log.fine(CLASS_NAME, methodName, "510", new Object[] {bufferedMessage.getMessage().getKey()});
-				internalSend(bufferedMessage.getMessage(), bufferedMessage.getToken());
+				internalSend(bufferedMessage.getMessage(), bufferedMessage.getToken(), true);
 				
 				// Delete from persistence if in there
 				clientState.unPersistBufferedMessage(bufferedMessage.getMessage());

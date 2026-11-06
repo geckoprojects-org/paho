@@ -217,6 +217,10 @@ public class MqttDataTypes {
 		int count = 0;
 
 		do {
+			if (count == 4) {
+				// MQTT 5 section 1.5.5: at most four bytes
+				throw new IOException("Malformed variable byte integer: more than 4 bytes");
+			}
 			digit = in.readByte();
 			count++;
 			value += ((digit & 0x7F) * multiplier);

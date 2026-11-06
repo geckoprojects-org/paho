@@ -17,14 +17,22 @@
  *    Ian Craggs - ack control (bug 472172)
  *    James Sutton - Bug 459142 - WebSocket support for the Java client.
  *    James Sutton - Automatic Reconnect & Offline Buffering.
+ *    Mark Hoffmann - automatic reconnect fixes, warning for credentials without TLS,
+ *                    random client ids, timers on the application's executor
+ *    Mark Hoffmann - disconnect after a reconnect that outlived disconnect()
  */
 
 package org.eclipse.paho.client.mqttv3;
 
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.security.SecureRandom;
 import java.util.Hashtable;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.Properties;
-import java.util.Timer;
-import java.util.TimerTask;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 
@@ -34,6 +42,7 @@ import org.eclipse.paho.client.mqttv3.internal.ConnectActionListener;
 import org.eclipse.paho.client.mqttv3.internal.DisconnectedMessageBuffer;
 import org.eclipse.paho.client.mqttv3.internal.ExceptionHelper;
 import org.eclipse.paho.client.mqttv3.internal.HighResolutionTimer;
+import org.eclipse.paho.client.mqttv3.internal.MonotonicTimer;
 import org.eclipse.paho.client.mqttv3.internal.SystemHighResolutionTimer;
 import org.eclipse.paho.client.mqttv3.internal.NetworkModule;
 import org.eclipse.paho.client.mqttv3.internal.NetworkModuleService;
@@ -109,11 +118,35 @@ public class MqttAsyncClient implements IMqttAsyncClient {
 	private MqttCallback mqttCallback;
 	private MqttConnectOptions connOpts;
 	private Object userContext;
-	private Timer reconnectTimer; // Automatic reconnect timer
-	private static int reconnectDelay = 1000; // Reconnect delay, starts at 1
+	private MonotonicTimer reconnectTimer; // Automatic reconnect timer
+	private int reconnectDelay = 1000; // Reconnect delay, starts at 1
 												// second
 	private boolean reconnecting = false;
-	private static final Object clientLock = new Object(); // Simple lock
+	private final Object clientLock = new Object(); // Simple lock
+	// The application ended the automatic reconnect cycle (disconnect, close); guarded by clientLock
+	private boolean reconnectCycleEnded = false;
+	// whether the warning on credentials without TLS has been logged
+	private boolean cleartextWarned = false;
+
+	/**
+	 * Subscriptions made through this client, by topic filter, so they can be restored after an
+	 * automatic reconnect that came back without a session (see the automaticResubscribe option).
+	 */
+	private final Map<String, StoredSubscription> storedSubscriptions = new ConcurrentHashMap<String, StoredSubscription>();
+
+	private static final int RESUBSCRIBE_BATCH = 25;
+
+	private static final class StoredSubscription {
+		final String topic;
+		final int qos;
+		final IMqttMessageListener listener;
+
+		StoredSubscription(String topic, int qos, IMqttMessageListener listener) {
+			this.topic = topic;
+			this.qos = qos;
+			this.listener = listener;
+		}
+	}
 
 	private ScheduledExecutorService executorService;
 
@@ -421,9 +454,15 @@ public class MqttAsyncClient implements IMqttAsyncClient {
 	 *            the persistence class to use to store in-flight message. If
 	 *            null then the default persistence mechanism is used
 	 * @param pingSender
-	 *            Custom {@link MqttPingSender} implementation.
+	 *            Custom {@link MqttPingSender} implementation. If null, a
+	 *            {@link ScheduledExecutorPingSender} on the executorService, or a
+	 *            {@link TimerPingSender} without one.
 	 * @param executorService
 	 *            used for managing threads. If null no executor service is used.
+	 *            The automatic reconnect delay and, with a {@code null}
+	 *            pingSender, the keep-alive pings are scheduled on it as well;
+	 *            it needs a thread for them besides the client's receiver,
+	 *            sender and callback tasks.
 	 * @throws IllegalArgumentException
 	 *             if the URI does not start with "tcp://", "ssl://" or
 	 *             "local://"
@@ -536,9 +575,15 @@ public class MqttAsyncClient implements IMqttAsyncClient {
 	 *            the persistence class to use to store in-flight message. If
 	 *            null then the default persistence mechanism is used
 	 * @param pingSender
-	 *            Custom {@link MqttPingSender} implementation.
+	 *            Custom {@link MqttPingSender} implementation. If null, a
+	 *            {@link ScheduledExecutorPingSender} on the executorService, or a
+	 *            {@link TimerPingSender} without one.
 	 * @param executorService
 	 *            used for managing threads. If null no executor service is used.
+	 *            The automatic reconnect delay and, with a {@code null}
+	 *            pingSender, the keep-alive pings are scheduled on it as well;
+	 *            it needs a thread for them besides the client's receiver,
+	 *            sender and callback tasks.
 	 * @param highResolutionTimer
 	 * 			  used for providing time values for keepalive ping scheduling. If {@code null}, a default timer is used
 	 * @throws IllegalArgumentException
@@ -586,6 +631,10 @@ public class MqttAsyncClient implements IMqttAsyncClient {
 		}
 
 		this.executorService = executorService;
+		if (pingSender == null) {
+			// Pings on the application's executor, if there is one
+			pingSender = executorService != null ? new ScheduledExecutorPingSender(executorService) : new TimerPingSender();
+		}
 
 		// @TRACE 101=<init> ClientID={0} ServerURI={1} PersistenceType={2}
 		log.fine(CLASS_NAME, methodName, "101", new Object[] { clientId, serverURI, persistence });
@@ -644,6 +693,46 @@ public class MqttAsyncClient implements IMqttAsyncClient {
 
 		log.fine(CLASS_NAME, methodName, "108");
 		return networkModules;
+	}
+
+	/**
+	 * Warns once per client when credentials go over a connection without TLS
+	 * to a host other than the loopback interface (CWE-319). Looks at the URI
+	 * strings only; no name lookup.
+	 */
+	private void warnOnCleartextCredentials(MqttConnectOptions options) {
+		if (cleartextWarned) {
+			return;
+		}
+		String[] uris = options.getServerURIs();
+		if (uris == null || uris.length == 0) {
+			uris = new String[] { serverURI };
+		}
+		for (String uri : uris) {
+			boolean ws = uri.startsWith("ws://");
+			if (!ws && !uri.startsWith("tcp://")) {
+				continue;
+			}
+			URI parsed;
+			try {
+				parsed = new URI(uri);
+			} catch (URISyntaxException e) {
+				continue;
+			}
+			boolean credentials = options.getPassword() != null
+					|| (ws && NetworkModuleService.getUserInfo(parsed) != null);
+			if (credentials && !isLoopback(NetworkModuleService.getHost(parsed))) {
+				cleartextWarned = true;
+				// @TRACE 120=Credentials are sent without TLS to {0}; use ssl:// or wss:// unless the network is protected otherwise
+				log.warning(CLASS_NAME, "connect", "120", new Object[] { uri });
+				return;
+			}
+		}
+	}
+
+	private static boolean isLoopback(String host) {
+		return host != null && (host.equalsIgnoreCase("localhost") || host.startsWith("127.")
+				|| host.equals("::1") || host.equals("[::1]"));
 	}
 
 	/**
@@ -745,6 +834,7 @@ public class MqttAsyncClient implements IMqttAsyncClient {
 						Integer.valueOf(options.getKeepAliveInterval()), options.getUserName(),
 						((null == options.getPassword()) ? "[null]" : "[notnull]"),
 						((null == options.getWillMessage()) ? "[null]" : "[notnull]"), userContext, callback });
+		warnOnCleartextCredentials(options);
 		comms.setNetworkModules(createNetworkModules(serverURI, options));
 		comms.setReconnectCallback(new MqttReconnectCallback(automaticReconnect));
 
@@ -805,6 +895,7 @@ public class MqttAsyncClient implements IMqttAsyncClient {
 	 */
 	public IMqttToken disconnect(long quiesceTimeout, Object userContext, IMqttActionListener callback)
 			throws MqttException {
+		storedSubscriptions.clear(); // a deliberate disconnect ends the logical session
 		final String methodName = "disconnect";
 		// @TRACE 104=> quiesceTimeout={0} userContext={1} callback={2}
 		log.fine(CLASS_NAME, methodName, "104", new Object[] { Long.valueOf(quiesceTimeout), userContext, callback });
@@ -815,6 +906,7 @@ public class MqttAsyncClient implements IMqttAsyncClient {
 
 		MqttDisconnect disconnect = new MqttDisconnect();
 		try {
+			endReconnectCycle();
 			comms.disconnect(disconnect, quiesceTimeout, token);
 		} catch (MqttException ex) {
 			// @TRACE 105=< exception
@@ -854,6 +946,8 @@ public class MqttAsyncClient implements IMqttAsyncClient {
 	 * long)
 	 */
 	public void disconnectForcibly(long quiesceTimeout, long disconnectTimeout) throws MqttException {
+		storedSubscriptions.clear();
+		endReconnectCycle();
 		comms.disconnectForcibly(quiesceTimeout, disconnectTimeout);
 	}
 
@@ -865,6 +959,8 @@ public class MqttAsyncClient implements IMqttAsyncClient {
 	 */
 	public void disconnectForcibly(long quiesceTimeout, long disconnectTimeout, boolean sendDisconnectPacket)
 			throws MqttException {
+		storedSubscriptions.clear();
+		endReconnectCycle();
 		comms.disconnectForcibly(quiesceTimeout, disconnectTimeout, sendDisconnectPacket);
 	}
 
@@ -1055,7 +1151,9 @@ public class MqttAsyncClient implements IMqttAsyncClient {
 			this.comms.removeMessageListener(topicFilter);
 		}
 		
-		return this.subscribeBase(topicFilters, qos, userContext, callback);
+		IMqttToken token = this.subscribeBase(topicFilters, qos, userContext, callback);
+		rememberSubscriptions(topicFilters, qos, null);
+		return token;
 	}
 
 	private IMqttToken subscribeBase(String[] topicFilters, int[] qos, Object userContext, IMqttActionListener callback)
@@ -1143,6 +1241,7 @@ public class MqttAsyncClient implements IMqttAsyncClient {
                 this.comms.setMessageListener(topicFilters[i], messageListeners[i]);
             }
 		}
+		rememberSubscriptions(topicFilters, qos, messageListeners);
 
 		IMqttToken token = null;
 		try 	{
@@ -1151,6 +1250,7 @@ public class MqttAsyncClient implements IMqttAsyncClient {
 			// if the subscribe fails, then we have to remove the message handlers
 			for (String topicFilter : topicFilters) {
 				this.comms.removeMessageListener(topicFilter);
+				storedSubscriptions.remove(topicFilter);
 			}
 			throw e;
 		}
@@ -1229,6 +1329,7 @@ public class MqttAsyncClient implements IMqttAsyncClient {
 		// remove message handlers from the list for this client
 		for (String topicFilter : topicFilters) {
 			this.comms.removeMessageListener(topicFilter);
+			storedSubscriptions.remove(topicFilter);
 		}
 
 		MqttToken token = new MqttToken(getClientId());
@@ -1278,8 +1379,10 @@ public class MqttAsyncClient implements IMqttAsyncClient {
 	}
 
 	/**
-	 * Returns a randomly generated client identifier based on the the fixed
-	 * prefix (paho) and the system time.
+	 * Returns a randomly generated client identifier: the fixed prefix (paho)
+	 * and 64 random bits from a {@link SecureRandom} as 16 hex digits, 20
+	 * characters in total (MQTT 3.1 allows 23). The client identifier
+	 * identifies the session, so it must not be guessable.
 	 * <p>
 	 * When cleanSession is set to false, an application must ensure it uses the
 	 * same client identifier when it reconnects to the server to resume state
@@ -1290,10 +1393,22 @@ public class MqttAsyncClient implements IMqttAsyncClient {
 	 * @see MqttConnectOptions#setCleanSession(boolean)
 	 */
 	public static String generateClientId() {
-		// length of nanoTime = 15, so total length = 19 < 65535(defined in
-		// spec)
-		return CLIENT_ID_PREFIX + System.nanoTime();
+		byte[] random = new byte[8];
+		ClientIdRandom.INSTANCE.nextBytes(random);
+		StringBuilder clientId = new StringBuilder(CLIENT_ID_PREFIX.length() + 2 * random.length);
+		clientId.append(CLIENT_ID_PREFIX);
+		for (byte b : random) {
+			clientId.append(Character.forDigit((b >> 4) & 0xF, 16)).append(Character.forDigit(b & 0xF, 16));
+		}
+		return clientId.toString();
+	}
 
+	/**
+	 * Holds the random source of {@link #generateClientId()}; created on first
+	 * use, as seeding can take time on a device with little entropy.
+	 */
+	private static final class ClientIdRandom {
+		static final SecureRandom INSTANCE = new SecureRandom();
 	}
 
 	/*
@@ -1401,8 +1516,15 @@ public class MqttAsyncClient implements IMqttAsyncClient {
 		if (comms.isClosed()) {
 			throw new MqttException(MqttException.REASON_CODE_CLIENT_CLOSED);
 		}
+		if (connOpts == null) {
+			// connect() was never called, so there is nothing to reconnect with
+			throw ExceptionHelper.createMqttException(MqttException.REASON_CODE_CLIENT_NOT_CONNECTED);
+		}
 		// We don't want to spam the server
 		stopReconnectCycle();
+		synchronized (clientLock) {
+			reconnectCycleEnded = false;
+		}
 
 		attemptReconnect();
 	}
@@ -1417,18 +1539,81 @@ public class MqttAsyncClient implements IMqttAsyncClient {
 	 * they are being thrown due to the server being offline and so reconnect
 	 * attempts will continue.
 	 */
+	private void rememberSubscriptions(String[] topicFilters, int[] qos, IMqttMessageListener[] listeners) {
+		if (connOpts != null && !connOpts.isAutomaticResubscribe()) {
+			return; // nothing to restore later, so retain nothing
+		}
+		for (int i = 0; i < topicFilters.length; i++) {
+			IMqttMessageListener listener = (listeners != null && i < listeners.length) ? listeners[i] : null;
+			storedSubscriptions.put(topicFilters[i], new StoredSubscription(topicFilters[i], qos[i], listener));
+		}
+	}
+
+	/**
+	 * Re-issues every subscription made through this client. Called after an automatic reconnect
+	 * whose CONNACK reported no session: the broker dropped the subscriptions and, with clean
+	 * session, {@code ClientComms.shutdownConnection} dropped the message listeners too, so without
+	 * this the connection comes back silent.
+	 * <p>
+	 * Public only because the connect machinery lives in the internal package; not meant to be
+	 * called by applications.
+	 */
+	public void restoreSubscriptions() {
+		final String methodName = "restoreSubscriptions";
+		if (connOpts == null || !connOpts.isAutomaticResubscribe() || storedSubscriptions.isEmpty()) {
+			return;
+		}
+		List<StoredSubscription> stored = new ArrayList<StoredSubscription>(storedSubscriptions.values());
+		// @TRACE 520=Restoring {0} subscription(s) after reconnect for client: {1}
+		log.fine(CLASS_NAME, methodName, "520", new Object[] { Integer.valueOf(stored.size()), this.clientId });
+		try {
+			// In batches: one SUBSCRIBE with thousands of filters could exceed the broker's packet
+			// limit, which would disconnect us and turn the restore into a reconnect loop.
+			for (int from = 0; from < stored.size(); from += RESUBSCRIBE_BATCH) {
+				int to = Math.min(from + RESUBSCRIBE_BATCH, stored.size());
+				String[] topicFilters = new String[to - from];
+				int[] qos = new int[to - from];
+				IMqttMessageListener[] listeners = new IMqttMessageListener[to - from];
+				for (int i = from; i < to; i++) {
+					topicFilters[i - from] = stored.get(i).topic;
+					qos[i - from] = stored.get(i).qos;
+					listeners[i - from] = stored.get(i).listener;
+				}
+				subscribe(topicFilters, qos, null, null, listeners);
+			}
+		} catch (MqttException ex) {
+			// @TRACE 521=Restoring subscriptions after reconnect failed for client: {0}
+			log.fine(CLASS_NAME, methodName, "521", new Object[] { this.clientId }, ex);
+		} catch (IllegalArgumentException ex) {
+			log.fine(CLASS_NAME, methodName, "521", new Object[] { this.clientId }, ex);
+		}
+	}
+
 	private void attemptReconnect() {
 		final String methodName = "attemptReconnect";
+		synchronized (clientLock) {
+			if (reconnectCycleEnded) {
+				return;
+			}
+		}
 		// @Trace 500=Attempting to reconnect client: {0}
 		log.fine(CLASS_NAME, methodName, "500", new Object[] { this.clientId });
 		try {
 			connect(this.connOpts, this.userContext, new MqttReconnectActionListener(methodName));
-		} catch (MqttSecurityException ex) {
-			// @TRACE 804=exception
-			log.fine(CLASS_NAME, methodName, "804", null, ex);
 		} catch (MqttException ex) {
 			// @TRACE 804=exception
 			log.fine(CLASS_NAME, methodName, "804", null, ex);
+			// connect() refused the attempt synchronously, e.g. because a connect from elsewhere is
+			// in progress or the client is meanwhile connected. Formerly the cycle ended here in
+			// silence; keep it alive unless there is nothing left to do.
+			if (comms.isConnected()) {
+				stopReconnectCycle();
+			} else if (!comms.isClosed()) {
+				// @TRACE 522=Reconnect attempt rejected with reason code {0}, rescheduling: {1}
+				log.fine(CLASS_NAME, methodName, "522",
+						new Object[] { Integer.valueOf(ex.getReasonCode()), this.clientId });
+				new MqttReconnectActionListener(methodName).backOffAndReschedule();
+			}
 		}
 	}
 
@@ -1436,7 +1621,8 @@ public class MqttAsyncClient implements IMqttAsyncClient {
 		String methodName = "startReconnectCycle";
 		// @Trace 503=Start reconnect timer for client: {0}, delay: {1}
 		log.fine(CLASS_NAME, methodName, "503", new Object[] { this.clientId, Long.valueOf(reconnectDelay) });
-		reconnectTimer = new Timer("MQTT Reconnect: " + clientId);
+		reconnectTimer = executorService != null ? new MonotonicTimer(executorService)
+				: new MonotonicTimer("MQTT Reconnect: " + clientId);
 		reconnectTimer.schedule(new ReconnectTask(), reconnectDelay);
 	}
 
@@ -1445,7 +1631,7 @@ public class MqttAsyncClient implements IMqttAsyncClient {
 		// @Trace 504=Stop reconnect timer for client: {0}
 		log.fine(CLASS_NAME, methodName, "504", new Object[] { this.clientId });
 		synchronized (clientLock) {
-			if (this.connOpts.isAutomaticReconnect()) {
+			if (this.connOpts != null && this.connOpts.isAutomaticReconnect()) {
 				if (reconnectTimer != null) {
 					reconnectTimer.cancel();
 					reconnectTimer = null;
@@ -1455,7 +1641,24 @@ public class MqttAsyncClient implements IMqttAsyncClient {
 		}
 	}
 
-	private class ReconnectTask extends TimerTask {
+	/**
+	 * Ends the automatic reconnect cycle for good, because the application takes the connection
+	 * down (disconnect, close). Unlike {@link #stopReconnectCycle()}, a failing reconnect attempt
+	 * that is still under way does not schedule a new one. A later connection loss or an explicit
+	 * {@link #reconnect()} starts a new cycle.
+	 */
+	private void endReconnectCycle() {
+		synchronized (clientLock) {
+			reconnectCycleEnded = true;
+			if (reconnectTimer != null) {
+				reconnectTimer.cancel();
+				reconnectTimer = null;
+			}
+			reconnectDelay = 1000; // Reset Delay Timer
+		}
+	}
+
+	private class ReconnectTask implements Runnable {
 		private static final String methodName = "ReconnectTask.run";
 
 		public void run() {
@@ -1479,6 +1682,9 @@ public class MqttAsyncClient implements IMqttAsyncClient {
 				// state
 				comms.setRestingState(true);
 				reconnecting = true;
+				synchronized (clientLock) {
+					reconnectCycleEnded = false;
+				}
 				startReconnectCycle();
 			}
 		}
@@ -1506,12 +1712,24 @@ public class MqttAsyncClient implements IMqttAsyncClient {
 			// @Trace 501=Automatic Reconnect Successful: {0}
 			log.fine(CLASS_NAME, methodName, "501", new Object[] { asyncActionToken.getClient().getClientId() });
 			comms.setRestingState(false);
+			boolean ended;
+			synchronized (clientLock) {
+				ended = reconnectCycleEnded;
+			}
 			stopReconnectCycle();
+			if (ended) {
+				// disconnect() came while this attempt was under way and could not stop it
+				comms.disconnectAfterReconnect(new MqttDisconnect(), new MqttToken(asyncActionToken.getClient().getClientId()));
+			}
 		}
 
 		public void onFailure(IMqttToken asyncActionToken, Throwable exception) {
 			// @Trace 502=Automatic Reconnect failed, rescheduling: {0}
 			log.fine(CLASS_NAME, methodName, "502", new Object[] { asyncActionToken.getClient().getClientId() });
+			backOffAndReschedule();
+		}
+
+		void backOffAndReschedule() {
 			if (reconnectDelay < connOpts.getMaxReconnectDelay()) {
 				reconnectDelay = reconnectDelay * 2;
 			}
@@ -1525,7 +1743,7 @@ public class MqttAsyncClient implements IMqttAsyncClient {
 			log.fine(CLASS_NAME, reschedulemethodName, "505",
 					new Object[] { MqttAsyncClient.this.clientId, String.valueOf(reconnectDelay) });
 			synchronized (clientLock) {
-				if (MqttAsyncClient.this.connOpts.isAutomaticReconnect()) {
+				if (!reconnectCycleEnded && MqttAsyncClient.this.connOpts.isAutomaticReconnect()) {
 					if (reconnectTimer != null) {
 						reconnectTimer.schedule(new ReconnectTask(), delay);
 					} else {
@@ -1609,6 +1827,8 @@ public class MqttAsyncClient implements IMqttAsyncClient {
 		final String methodName = "close";
 		// @TRACE 113=<
 		log.fine(CLASS_NAME, methodName, "113");
+		storedSubscriptions.clear();
+		endReconnectCycle();
 		comms.close(force);
 		// @TRACE 114=>
 		log.fine(CLASS_NAME, methodName, "114");

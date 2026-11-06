@@ -23,6 +23,7 @@ import org.eclipse.paho.client.mqttv3.MqttConnectOptions;
 import org.eclipse.paho.client.mqttv3.MqttException;
 import org.eclipse.paho.client.mqttv3.internal.ExceptionHelper;
 import org.eclipse.paho.client.mqttv3.internal.NetworkModule;
+import org.eclipse.paho.client.mqttv3.internal.NetworkModuleService;
 import org.eclipse.paho.client.mqttv3.internal.SSLNetworkModule;
 import org.eclipse.paho.client.mqttv3.internal.security.SSLSocketFactoryFactory;
 import org.eclipse.paho.client.mqttv3.spi.NetworkModuleFactory;
@@ -43,8 +44,8 @@ public class WebSocketSecureNetworkModuleFactory implements NetworkModuleFactory
 	public NetworkModule createNetworkModule(URI brokerUri, MqttConnectOptions options, String clientId)
 			throws MqttException
 	{
-		String host = brokerUri.getHost();
-		int port = brokerUri.getPort(); // -1 if not defined
+		String host = NetworkModuleService.getHost(brokerUri);
+		int port = NetworkModuleService.getPort(brokerUri); // -1 if not defined
 		if (port == -1) {
 			port = 443;
 		}
@@ -66,6 +67,9 @@ public class WebSocketSecureNetworkModuleFactory implements NetworkModuleFactory
 		WebSocketSecureNetworkModule netModule = new WebSocketSecureNetworkModule((SSLSocketFactory) factory,
 				brokerUri.toString(), host, port, clientId, options.getCustomWebSocketHeaders(), options.isSkipPortDuringHandshake());
 		netModule.setSSLhandshakeTimeout(options.getConnectionTimeout());
+		if (options.getMaxInboundPacketSize() > 0) {
+			netModule.setMaxFramePayloadLength(options.getMaxInboundPacketSize());
+		}
 		netModule.setSSLHostnameVerifier(options.getSSLHostnameVerifier());
 		netModule.setHttpsHostnameVerificationEnabled(options.isHttpsHostnameVerificationEnabled());
 		// Ciphers suites need to be set, if they are available

@@ -12,6 +12,7 @@
  *
  * Contributors:
  *    Dave Locke - initial API and implementation and/or initial documentation
+ *    Mark Hoffmann - topic filter of a shared subscription
  */
 package org.eclipse.paho.client.mqttv3;
 
@@ -248,6 +249,33 @@ public class MqttTopic {
 				}
 			}
 		}
+	}
+
+	/**
+	 * Prefix of a shared subscription: {@code $share/<ShareName>/<TopicFilter>}. MQTT 3.1.1 does not
+	 * define shared subscriptions, but brokers offer them to 3.1.1 clients as MQTT 5.0 (4.8.2) does.
+	 */
+	public static final String SHARED_SUBSCRIPTION_PREFIX = "$share/";
+
+	/**
+	 * Returns the topic filter a subscription matches topic names with: of a shared subscription
+	 * {@code $share/<ShareName>/<TopicFilter>} the part after the share name, else the filter as
+	 * it is. A PUBLISH received through a shared subscription carries a topic name that matches
+	 * only that part.
+	 *
+	 * @param topicFilter
+	 *            the topic filter of a subscription
+	 * @return the topic filter without the shared subscription prefix
+	 */
+	public static String getMatchingTopicFilter(String topicFilter) {
+		if (topicFilter.startsWith(SHARED_SUBSCRIPTION_PREFIX)) {
+			// the share name contains no separator
+			int filterStart = topicFilter.indexOf(TOPIC_LEVEL_SEPARATOR, SHARED_SUBSCRIPTION_PREFIX.length());
+			if (filterStart > 0) {
+				return topicFilter.substring(filterStart + 1);
+			}
+		}
+		return topicFilter;
 	}
 
 	/**

@@ -12,10 +12,13 @@
  *
  * Contributors:
  *    James Sutton - Bug 459142 - WebSocket support for the Java client.
+ *    Mark Hoffmann - bounded WebSocket input
+ *    Mark Hoffmann - ping, pong and fragmented frames
+ *    Mark Hoffmann - close the socket when the close frame fails
+ *    Mark Hoffmann - keeps the read timeout once connected
  */
 package org.eclipse.paho.mqttv5.client.websocket;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -37,6 +40,7 @@ public class WebSocketSecureNetworkModule extends SSLNetworkModule{
 	
 	private PipedInputStream pipedInputStream;
 	private WebSocketReceiver webSocketReceiver;
+	private int maxFramePayloadLength = WebSocketFrame.MAX_PAYLOAD_LENGTH;
 	private String uri;
 	private String host;
 	private int port;
@@ -48,7 +52,7 @@ public class WebSocketSecureNetworkModule extends SSLNetworkModule{
 	 * This allows us to encode the MQTT payload into a WebSocket
 	 *  Frame before passing it through to the real socket.
 	 */
-	private ByteArrayOutputStream outputStream = new ExtendedByteArrayOutputStream(this);
+	private final ExtendedByteArrayOutputStream outputStream = new ExtendedByteArrayOutputStream(this);
 
 	public WebSocketSecureNetworkModule(SSLSocketFactory factory, String uri, String host, int port, String clientId) {
 		super(factory, host, port, clientId);
@@ -63,7 +67,7 @@ public class WebSocketSecureNetworkModule extends SSLNetworkModule{
 		super.start();
 		WebSocketHandshake handshake = new WebSocketHandshake(super.getInputStream(), super.getOutputStream(), uri, host, port, customWebSocketHeaders);
 		handshake.execute();
-		this.webSocketReceiver = new WebSocketReceiver(getSocketInputStream(), pipedInputStream);
+		this.webSocketReceiver = new WebSocketReceiver(getSocketInputStream(), pipedInputStream, maxFramePayloadLength, outputStream);
 		webSocketReceiver.start("WssSocketReceiver");
 
 	}
@@ -76,6 +80,14 @@ public class WebSocketSecureNetworkModule extends SSLNetworkModule{
 		return super.getInputStream();
 	}
 	
+	/**
+	 * Keeps the read timeout: the WebSocket receiver thread notices that it is
+	 * stopped only when its read times out.
+	 */
+	@Override
+	public void connected() {
+	}
+
 	public InputStream getInputStream() throws IOException {
 		return pipedInputStream;
 	}
@@ -89,16 +101,15 @@ public class WebSocketSecureNetworkModule extends SSLNetworkModule{
 	}
 
 	public void stop() throws IOException {
-		// Creating Close Frame
-		WebSocketFrame frame = new WebSocketFrame((byte)0x08, true, "1000".getBytes());
-		byte[] rawFrame = frame.encodeFrame();
-		getSocketOutputStream().write(rawFrame);
-		getSocketOutputStream().flush();
-
-		if(webSocketReceiver != null){
-			webSocketReceiver.stop();
+		try {
+			// Creating Close Frame; fails when the connection is broken already
+			outputStream.writeFrame(new WebSocketFrame(WebSocketFrame.OPCODE_CLOSE, true, "1000".getBytes()));
+		} finally {
+			if (webSocketReceiver != null) {
+				webSocketReceiver.stop();
+			}
+			super.stop();
 		}
-		super.stop();
 	}
 
 	public String getServerURI() {
@@ -107,5 +118,14 @@ public class WebSocketSecureNetworkModule extends SSLNetworkModule{
 	
 	
 
-
+	/**
+	 * Sets the largest payload of an inbound WebSocket frame; the client's
+	 * maximum inbound packet size.
+	 *
+	 * @param maxFramePayloadLength
+	 *            the limit in bytes
+	 */
+	public void setMaxFramePayloadLength(int maxFramePayloadLength) {
+		this.maxFramePayloadLength = maxFramePayloadLength;
+	}
 }

@@ -18,6 +18,11 @@
  *    Ian Craggs - fix for NPE bug 470718
  *    James Sutton - Automatic Reconnect & Offline Buffering
  *    Jens Reimann - Fix issue #370
+ *    Mark Hoffmann - maximum inbound packet size
+ *    Mark Hoffmann - offline buffer releases message IDs and stored messages
+ *    Mark Hoffmann - removeMessage() finds a queued publish
+ *    Mark Hoffmann - queued publish limit
+ *    Mark Hoffmann - restored QoS 0 messages sent once
  */
 package org.eclipse.paho.client.mqttv3.internal;
 
@@ -125,6 +130,8 @@ public class ClientState {
 	private HighResolutionTimer highResolutionTimer;
 	
 	private int maxInflight = 0;	
+	private int maxInboundPacketSize = 0;
+	private int maxQueuedMessages = 0;
 	private int actualInFlight = 0;
 	private int inFlightPubRels = 0;
 	
@@ -179,6 +186,18 @@ public class ClientState {
         this.maxInflight = maxInflight;
         pendingMessages = new Vector(this.maxInflight);
     }
+	protected void setMaxQueuedMessages(int maxQueuedMessages) {
+		this.maxQueuedMessages = maxQueuedMessages;
+	}
+	protected void setMaxInboundPacketSize(int maxInboundPacketSize) {
+		this.maxInboundPacketSize = maxInboundPacketSize;
+	}
+	/**
+	 * @return the maximum size of an inbound packet in bytes, 0 for no limit
+	 */
+	public int getMaxInboundPacketSize() {
+		return maxInboundPacketSize;
+	}
     protected void setKeepAliveSecs(long keepAliveSecs) {
 		this.keepAliveNanos = TimeUnit.SECONDS.toNanos(keepAliveSecs);
 	}
@@ -526,6 +545,13 @@ public class ClientState {
 
 					throw new MqttException(MqttException.REASON_CODE_MAX_INFLIGHT);
 				}
+				// the in-flight count leaves out the queued publishes, they pile up while the link stalls
+				if (maxQueuedMessages > 0 && pendingMessages.size() >= maxQueuedMessages) {
+					//@TRACE 614=sending {0} msgs at max queued messages
+					log.fine(CLASS_NAME, methodName, "614", new Object[]{ Integer.valueOf(pendingMessages.size())});
+
+					throw new MqttException(MqttException.REASON_CODE_MAX_INFLIGHT);
+				}
 				
 				MqttMessage innerMessage = ((MqttPublish) message).getMessage();
 				//@TRACE 628=pending publish key={0} qos={1} message={2}
@@ -616,6 +642,23 @@ public class ClientState {
 	}
 	
 	/**
+	 * Frees what a message holds that leaves the offline buffer without being sent (discarded
+	 * as the oldest, or refused because the buffer is full): its message ID and, if it was stored,
+	 * its stored copy.
+	 *
+	 * @param message the buffered message
+	 * @param stored whether {@link #persistBufferedMessage(MqttWireMessage)} stored it
+	 */
+	public void discardBufferedMessage(MqttWireMessage message, boolean stored) {
+		if (stored) {
+			unPersistBufferedMessage(message);
+		}
+		if (message.getMessageId() != 0) {
+			releaseMessageId(message.getMessageId());
+		}
+	}
+
+	/**
 	 * @param message The {@link MqttWireMessage} to un-persist
 	 */
 	public void unPersistBufferedMessage(MqttWireMessage message){
@@ -637,6 +680,18 @@ public class ClientState {
 	 * @throws MqttPersistenceException if an exception occurs whilst removing the message
 	 */
 	protected void undo(MqttPublish message) throws MqttPersistenceException {
+		undo(message, false);
+	}
+
+	/**
+	 * Removes the message from the outbound queue and persistence.
+	 *
+	 * @param message the {@link MqttPublish} message to be removed
+	 * @param keepMessageId true for a message from the offline buffer: its stored copy is keyed
+	 *            by the message ID, which it keeps for the retry
+	 * @throws MqttPersistenceException if an exception occurs whilst removing the message
+	 */
+	protected void undo(MqttPublish message, boolean keepMessageId) throws MqttPersistenceException {
 		final String methodName = "undo";
 		synchronized (queueLock) {
 			//@TRACE 618=key={0} QoS={1} 
@@ -650,7 +705,7 @@ public class ClientState {
 			pendingMessages.removeElement(message);
 			persistence.remove(getSendPersistenceKey(message));
 			tokenStore.removeToken(message);
-			if(message.getMessage().getQos() > 0){
+			if(message.getMessage().getQos() > 0 && !keepMessageId){
 				//Free this message Id so it can be used again
 				releaseMessageId(message.getMessageId());
 				//Set the messageId to 0 so if it's ever retried, it will get a new messageId
@@ -683,14 +738,27 @@ public class ClientState {
 					result = true;
 				}
 			}
-			if (pendingMessages.removeElement(message)) {
+			// A message still waiting in pendingMessages was never sent and so never counted in flight.
+			// The queue holds the MqttPublish, not the MqttMessage of the token: find it by its ID.
+			boolean neverSent = false;
+			for (int i = 0; i < pendingMessages.size(); i++) {
+				MqttWireMessage queued = (MqttWireMessage) pendingMessages.elementAt(i);
+				if (queued instanceof MqttPublish && queued.getMessageId() == messageId) {
+					pendingMessages.removeElementAt(i);
+					neverSent = true;
+					break;
+				}
+			}
+			if (neverSent) {
 				result = true;
 			}
 			persistence.remove(getSendPersistenceKey(messageId));
 			String key =  Integer.toString(messageId);
 			tokenStore.removeToken(key);
 			releaseMessageId(messageId);
-			decrementInFlight();
+			if (result && !neverSent) {
+				decrementInFlight();
+			}
 		}
 		return result;
 	}
@@ -945,12 +1013,29 @@ public class ClientState {
 			if (((MqttPublish)message).getMessage().getQos() == 0) {
 				// once a QoS 0 message is sent we can clean up its records straight away as
 				// we won't be hearing about it again
+				// a restored one (outboundQoS0) is queued again on every CONNACK otherwise
+				outboundQoS0.remove(Integer.valueOf(message.getMessageId()), message);
 				token.internalTok.markComplete(null, null);
 				callback.asyncOperationComplete(token);
 				decrementInFlight();
 				releaseMessageId(message.getMessageId());
 				tokenStore.removeToken(message);
 				checkQuiesceLock();
+			}
+		}
+	}
+
+	/**
+	 * Frees the in-flight slot of the QoS 1 or QoS 2 publish an acknowledgement (PUBACK, PUBCOMP)
+	 * completes. Idempotent: only the first call for a message decrements the in-flight count, so
+	 * notifyResult and notifyComplete can both call it.
+	 */
+	private void releaseInflightSlot(MqttAck ack) {
+		synchronized (queueLock) {
+			Integer messageId = Integer.valueOf(ack.getMessageId());
+			Object released = ack instanceof MqttPubAck ? outboundQoS1.remove(messageId) : outboundQoS2.remove(messageId);
+			if (released != null) {
+				decrementInFlight();
 			}
 		}
 	}
@@ -1155,8 +1240,7 @@ public class ClientState {
 				// QoS 1 - user notified now remove from persistence...
 				persistence.remove(getSendPersistenceKey(message));
 				persistence.remove(getSendBufferedPersistenceKey(message));
-				outboundQoS1.remove(Integer.valueOf(ack.getMessageId()));
-				decrementInFlight();
+				releaseInflightSlot(ack); // usually done already in notifyResult
 				releaseMessageId(message.getMessageId());
 				tokenStore.removeToken(message);
 				// @TRACE 650=removed Qos 1 publish. key={0}
@@ -1167,10 +1251,9 @@ public class ClientState {
 				persistence.remove(getSendPersistenceKey(message));
 				persistence.remove(getSendConfirmPersistenceKey(message));
 				persistence.remove(getSendBufferedPersistenceKey(message));
-				outboundQoS2.remove( Integer.valueOf(ack.getMessageId()));
+				releaseInflightSlot(ack); // usually done already in notifyResult
 
 				inFlightPubRels--;
-				decrementInFlight();
 				releaseMessageId(message.getMessageId());
 				tokenStore.removeToken(message);
 
@@ -1188,6 +1271,13 @@ public class ClientState {
 		final String methodName = "notifyResult";
 		// unblock any threads waiting on the token  
 		token.internalTok.markComplete(ack, ex);
+		if (ack instanceof MqttPubAck || ack instanceof MqttPubComp) {
+			// Free the in-flight slot before the waiter wakes up: the rest of the clean-up
+			// runs later on the callback thread, and an application that publishes its
+			// next message right away would otherwise still find the slot taken
+			// ("Too many publishes in progress").
+			releaseInflightSlot((MqttAck) ack);
+		}
 		token.internalTok.notifyComplete();
 		
 		// Let the user know an async operation has completed and then remove the token

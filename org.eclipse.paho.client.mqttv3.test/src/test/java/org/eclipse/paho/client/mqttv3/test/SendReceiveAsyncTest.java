@@ -10,6 +10,8 @@
  * and the Eclipse Distribution License is available at 
  *   https://www.eclipse.org/org/documents/edl-v10.php
  *
+ * Contributors:
+ *    Mark Hoffmann - large message test raises the inbound packet limit
  *******************************************************************************/
 
 package org.eclipse.paho.client.mqttv3.test;
@@ -603,6 +605,8 @@ public class SendReceiveAsyncTest {
   		//keepAlive=30s
   		MqttConnectOptions options = new MqttConnectOptions();
   		options.setKeepAliveInterval(30);
+  		// the message is larger than the default inbound limit of 1 MiB
+  		options.setMaxInboundPacketSize(32 * (1 << 20));
   
   		IMqttToken connectToken = mqttClient.connect(options);
   		log.info("Connecting...(serverURI:" + serverURI + ", ClientId:" + methodName);

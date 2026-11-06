@@ -1,0 +1,79 @@
+# Where a release goes.
+#
+# The fennec library (cnf/ext/fennec.bnd, -library: fennec) brings the mechanics: DO_RELEASE
+# decides the version bnd stamps on every bundle (releng/snapshot.bnd: ${tstamp}-SNAPSHOT;
+# releng/release.bnd: the bare version), '-pom: true' and '-maven-release: pom' the Maven side,
+# and — only when GPG_PASSPHRASE is set and maven-central is true — releng/central.bnd: the
+# 'Sonatype' repository of bnd 7.4's Sonatype Central Portal support and signing through
+# '-maven-release: pom, sign'.
+#
+# This workspace sets '-releaserepo' outright (what the workspace sets wins over the library):
+#   snapshot (no GPG):        Release            → dim-snapshot
+#   snapshot (GPG):           Sonatype, Release  → the Portal's snapshot repository and dim-snapshot
+#   release (DO_RELEASE=true): Release, Dist     → dim-release and dist/bundles
+#   release, NEXUS_RELEASE=false: Dist            → dist/bundles only
+# A release does not go through the library's Sonatype repository. It takes the way bnd itself
+# releases (bnd docs, 'Sonatype Central Portal Publishing'): bnd writes the signed release into
+# the local Maven repository dist/bundles, and .github/scripts/sonatype-upload.sh uploads that
+# directory to the Portal as one deployment; sonatype-status.sh follows it. The Jenkinsfile runs
+# both. One deployment for the whole workspace instead of one per bundle, and whether it is
+# published right away or waits for a click in the Portal is the upload's choice, not the build's.
+# Which Nexus URL is used follows from the version: a -SNAPSHOT goes to snapshotUrl. (Not a
+# '-releaserepo.nexus' suffix key: merged with the library's 'Release' that gives 'Release~',
+# a name no repository has.)
+#
+# Credentials are not in the repository. They are the Jenkins agent's, as with the old DIM
+# library that released the old weather workspace: bnd reads ~/.bnd/connection-settings.xml and
+# ~/.m2/settings.xml (the leading '-' makes a missing file no error), where a <server> whose id
+# is the host carries the login — devel.data-in-motion.biz for the Nexus,
+# production.portal.central.sonatype.com for the Portal. The key is set outright, not as a
+# suffix, so that the library's releng/central.bnd — which would replace the list with its own
+# sonatype-settings.xml and thereby switch the agent's files off — does not apply. The two inline
+# servers are for a CI that hands the logins over in the environment instead
+# (NEXUS_USERNAME/NEXUS_PASSWORD, CS_USERNAME/CS_PASSWORD, the names emf.osgi's GitHub workflows
+# use); unset, they carry no credentials and do nothing. The upload script takes the Portal token
+# as SONATYPE_BEARER, which the Jenkinsfile builds from CS_USERNAME/CS_PASSWORD.
+# Taken from org.gecko.weather (branch sunorcloud); see the Jenkinsfile.
+
+-plugin.7.Release: \
+	aQute.bnd.repository.maven.provider.MavenBndRepository;\
+		releaseUrl  = https://devel.data-in-motion.biz/nexus/repository/dim-release/;\
+		snapshotUrl = https://devel.data-in-motion.biz/nexus/repository/dim-snapshot/;\
+		name        = 'Release'
+
+# The local Maven repository the Central upload is made from; git and the bnd workspace ignore it.
+dist: ${workspace}/dist/bundles
+-plugin.8.Dist: \
+	aQute.bnd.repository.maven.provider.MavenBndRepository;\
+		releaseUrl       = ${fileuri;${dist}};\
+		snapshotUrl      = ${fileuri;${dist}};\
+		noupdateOnRelease = true;\
+		name             = 'Dist'
+
+# NEXUS_RELEASE=false keeps a release off the Nexus, for a trial of the Central upload: dim-release
+# takes every version only once.
+-releaserepo: ${if;${env;DO_RELEASE;};${if;${env;NEXUS_RELEASE;true};Release,}Dist;${if;${env;GPG_PASSPHRASE;};${if;${maven-central};Sonatype,Release;Release};Release}}
+
+-connection-settings: \
+	-bnd,\
+	-maven,\
+	server; \
+		id=devel.data-in-motion.biz; \
+		username="${env;NEXUS_USERNAME;}"; \
+		password="${env;NEXUS_PASSWORD;}",\
+	server; \
+		id=production.portal.central.sonatype.com; \
+		username="${env;CS_USERNAME;}"; \
+		password="${env;CS_PASSWORD;}"
+
+# Signing, as the old DIM library did it on this Jenkins: the keyring is the agent's (the old
+# setup pointed gpg at /var/jenkins_home/.gnupg; gpg honours GNUPGHOME, which the Jenkinsfile
+# sets), the passphrase arrives in GPG_PASSPHRASE (the library's name; the Jenkinsfile maps the
+# old GNUPG_PASSPHRASE onto it). The library's own gpg line insists on GPG_KEY_ID; here the
+# --local-user is only given when a key id is set, otherwise gpg takes its default key — as the
+# old setup did.
+gpg: gpg ${if;${env;GPG_KEY_ID;};--local-user ${env;GPG_KEY_ID}} --pinentry-mode loopback --batch
+
+# Poms without <dependencies>: the Paho clients have no runtime dependencies; the -buildpath only
+# holds the OSGi annotations the fennec library adds, which bnd would otherwise list.
+-maven-dependencies:

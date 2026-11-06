@@ -12,6 +12,8 @@
  *
  * Contributors:
  *    Dave Locke - initial API and implementation and/or initial documentation
+ *    Mark Hoffmann - close the socket when shutdownInput fails
+ *    Mark Hoffmann - no read timeout once connected
  */
 package org.eclipse.paho.mqttv5.client.internal;
 
@@ -82,6 +84,20 @@ public class TCPNetworkModule implements NetworkModule {
 		}
 	}
 
+	/**
+	 * Called once the CONNACK has arrived. Until then the receiver wakes up once a
+	 * second to check the CONNACK deadline; afterwards it blocks in its read until
+	 * data arrives or {@link #stop()} shuts the socket down, so an idle connection
+	 * causes no wakeups.
+	 * 
+	 * @throws IOException if the socket refuses the timeout
+	 */
+	public void connected() throws IOException {
+		if (socket != null) {
+			socket.setSoTimeout(0);
+		}
+	}
+
 	public InputStream getInputStream() throws IOException {
 		return socket.getInputStream();
 	}
@@ -114,7 +130,12 @@ public class TCPNetworkModule implements NetworkModule {
 			// This workaround should not cause any harm in general but you might
 			// want to move it in SSLNetworkModule.
 
-			socket.shutdownInput();
+			try {
+				socket.shutdownInput();
+			} catch (IOException | UnsupportedOperationException e) {
+				// SSLSocket on Java 8 does not support it, or the input is shut down already;
+				// the socket is closed in any case
+			}
 			socket.close();
 		}
 	}

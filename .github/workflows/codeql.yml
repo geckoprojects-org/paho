@@ -1,0 +1,65 @@
+# CodeQL static analysis of the Java sources and of the workflows themselves. Results go to the
+# code scanning dashboard of the repository; the OpenSSF Scorecard counts this as SAST.
+#
+# Java is analysed without a build (build-mode none): the bnd workspace build is not needed to
+# extract the sources, and the analysis does not depend on Gradle or the bnd repositories.
+#
+# This is the "advanced setup". Do not enable the CodeQL default setup in the repository settings
+# as well; GitHub refuses SARIF uploads of an advanced setup while the default setup is active.
+name: CodeQL
+
+on:
+  push:
+    branches:
+      - snapshot
+      - main
+  pull_request:
+  schedule:
+    - cron: '41 4 * * 3'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      # Upload the results to the code scanning dashboard.
+      security-events: write
+      # Read the workflow runs (for the actions language).
+      actions: read
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        language:
+          - java-kotlin
+          - actions
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+          # Only the shipped client sources; the upstream tests are not part of the release.
+          config: |
+            paths:
+              - org.eclipse.paho.client.mqttv3/src
+              - org.eclipse.paho.mqttv5.client/src
+              - .github
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          category: /language:${{ matrix.language }}

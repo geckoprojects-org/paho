@@ -15,11 +15,18 @@
  *    Ian Craggs - per subscription message handlers (bug 466579)
  *    Ian Craggs - ack control (bug 472172)
  *    James Sutton - Automatic Reconnect & Offline Buffering
+ *    Mark Hoffmann - inbound QoS 2 logged at FINE
+ *    Mark Hoffmann - message listeners replaced on re-subscribe, guarded by a lock
+ *    Mark Hoffmann - one subscription identifier for several filters, mixed id and topic routing,
+ *                    topic routing of shared subscriptions
  */
 package org.eclipse.paho.mqttv5.client.internal;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
@@ -58,7 +65,11 @@ public class CommsCallback implements Runnable {
 	private MqttCallback reconnectInternalCallback;
 	private HashMap<Integer, IMqttMessageListener> callbackMap; // Map of message handler callbacks to internal IDs
 	private HashMap<String, Integer> callbackTopicMap; // Map of Topic Strings to internal callback Ids
-	private HashMap<Integer, Integer> subscriptionIdMap; // Map of Subscription Ids to callback Ids
+	// Map of Subscription Ids to callback Ids: one SUBSCRIBE with several filters links them all to its identifier
+	private HashMap<Integer, List<Integer>> subscriptionIdMap;
+	private HashMap<Integer, Integer> callbackSubscriptionIdMap; // Map of callback Ids to their Subscription Id
+	/** Guards the listener maps, changed by application threads and read by the callback thread. */
+	private final Object listenerLock = new Object();
 	private AtomicInteger messageHandlerId = new AtomicInteger(0);
 	private ClientComms clientComms;
 	private ArrayList<MqttPublish> messageQueue;
@@ -86,6 +97,7 @@ public class CommsCallback implements Runnable {
 		this.callbackMap = new HashMap<>();
 		this.callbackTopicMap = new HashMap<>();
 		this.subscriptionIdMap = new HashMap<>();
+		this.callbackSubscriptionIdMap = new HashMap<>();
 		log.setResourceName(clientComms.getClient().getClientId());
 	}
 
@@ -374,7 +386,7 @@ public class CommsCallback implements Runnable {
 	 */
 	public void messageArrived(MqttPublish sendMessage) {
 		final String methodName = "messageArrived";
-		if (mqttCallback != null || callbackMap.size() > 0) {
+		if (mqttCallback != null || hasMessageListeners()) {
 			// If we already have enough messages queued up in memory, wait
 			// until some more queue space becomes available. This helps
 			// the client protect itself from getting flooded by messages
@@ -397,6 +409,20 @@ public class CommsCallback implements Runnable {
 					log.fine(CLASS_NAME, methodName, "710");
 					workAvailable.notifyAll();
 				}
+			}
+		} else {
+			// No callback and no message listener (yet), e.g. a message of a persistent session
+			// that arrives right after the CONNACK, before the application subscribes. Nobody can
+			// take it; acknowledge it all the same, as handleMessage does for a message no listener
+			// matches. Without the acknowledgement the server redelivers it on every connect.
+			// @TRACE 730=no callback or message listener; message {0} on topic {1} acknowledged and discarded
+			log.warning(CLASS_NAME, methodName, "730",
+					new Object[] { Integer.valueOf(sendMessage.getMessageId()), sendMessage.getTopicName() });
+			try {
+				acknowledge(sendMessage);
+			} catch (MqttException ex) {
+				// @TRACE 731=could not acknowledge discarded message {0}
+				log.fine(CLASS_NAME, methodName, "731", new Object[] { Integer.valueOf(sendMessage.getMessageId()) }, ex);
 			}
 		}
 	}
@@ -481,7 +507,14 @@ public class CommsCallback implements Runnable {
 		deliverMessage(destName, publishMessage.getMessageId(), publishMessage.getMessage());
 
 		// If we are not in manual ACK mode:
-		if (!this.manualAcks && publishMessage.getMessage().getQos() == 1) {
+		if (!this.manualAcks) {
+			acknowledge(publishMessage);
+		}
+	}
+
+	/** Sends the acknowledgement of a received QoS 1 message (QoS 2 flows are completed by ClientState). */
+	private void acknowledge(MqttPublish publishMessage) throws MqttException {
+		if (publishMessage.getMessage().getQos() == 1) {
 			this.clientComms.internalSend(new MqttPubAck(MqttReturnCode.RETURN_CODE_SUCCESS,
 					publishMessage.getMessageId(), new MqttProperties()),
 					new MqttToken(clientComms.getClient().getClientId()));
@@ -497,7 +530,7 @@ public class CommsCallback implements Runnable {
 			this.clientComms.deliveryComplete(messageId);
 			MqttPubComp pubComp = new MqttPubComp(MqttReturnCode.RETURN_CODE_SUCCESS, messageId, new MqttProperties());
 			// @TRACE 723=Creating MqttPubComp due to manual ACK: {0}
-			log.info(CLASS_NAME, "messageArrivedComplete", "723", new Object[] { pubComp.toString() });
+			log.fine(CLASS_NAME, "messageArrivedComplete", "723", new Object[] { pubComp });
 
 			this.clientComms.internalSend(pubComp, new MqttToken(clientComms.getClient().getClientId()));
 		}
@@ -541,12 +574,22 @@ public class CommsCallback implements Runnable {
 	}
 
 	public void setMessageListener(Integer subscriptionId, String topicFilter, IMqttMessageListener messageListener) {
-		int internalId = messageHandlerId.incrementAndGet();
-		this.callbackMap.put(internalId, messageListener);
-		this.callbackTopicMap.put(topicFilter, internalId);
+		synchronized (listenerLock) {
+			// a new subscribe of the filter replaces its listener and subscription identifier
+			removeListenerOfTopic(topicFilter);
+			int internalId = messageHandlerId.incrementAndGet();
+			this.callbackMap.put(internalId, messageListener);
+			this.callbackTopicMap.put(topicFilter, internalId);
 
-		if (subscriptionId != null) {
-			this.subscriptionIdMap.put(subscriptionId, internalId);
+			if (subscriptionId != null) {
+				List<Integer> callbackIds = this.subscriptionIdMap.get(subscriptionId);
+				if (callbackIds == null) {
+					callbackIds = new ArrayList<>(1);
+					this.subscriptionIdMap.put(subscriptionId, callbackIds);
+				}
+				callbackIds.add(internalId);
+				this.callbackSubscriptionIdMap.put(internalId, subscriptionId);
+			}
 		}
 	}
 
@@ -560,14 +603,24 @@ public class CommsCallback implements Runnable {
 	 *            the topic filter that identifies the Message listener to remove.
 	 */
 	public void removeMessageListener(String topicFilter) {
-		Integer callbackId = this.callbackTopicMap.get(topicFilter);
-		this.callbackMap.remove(callbackId);
-		this.callbackTopicMap.remove(topicFilter);
+		synchronized (listenerLock) {
+			removeListenerOfTopic(topicFilter);
+		}
+	}
 
-		// Reverse lookup the subscription ID if it exists to remove that as well
-		for (Map.Entry<Integer, Integer> entry : this.subscriptionIdMap.entrySet()) {
-			if (entry.getValue().equals(callbackId)) {
-				this.subscriptionIdMap.remove(entry.getKey());
+	private void removeListenerOfTopic(String topicFilter) {
+		Integer callbackId = this.callbackTopicMap.remove(topicFilter);
+		if (callbackId == null) {
+			return;
+		}
+		this.callbackMap.remove(callbackId);
+		// unlink the subscription ID; it stays for the other filters subscribed with it
+		Integer subscriptionId = this.callbackSubscriptionIdMap.remove(callbackId);
+		if (subscriptionId != null) {
+			List<Integer> callbackIds = this.subscriptionIdMap.get(subscriptionId);
+			callbackIds.remove(callbackId);
+			if (callbackIds.isEmpty()) {
+				this.subscriptionIdMap.remove(subscriptionId);
 			}
 		}
 	}
@@ -575,56 +628,91 @@ public class CommsCallback implements Runnable {
 	/**
 	 * Removes a Message Listener by subscription ID. If the Subscription Identifier
 	 * is null or incorrect, this function will return without making any changes.
-	 * It will also attempt to find any Topic Strings linked to the same message
-	 * listener and will remove them too.
-	 * 
+	 * It also removes the Topic Strings linked to the subscription ID.
+	 *
 	 * @param subscriptionId
 	 *            the subscription ID that identifies the Message listener to
 	 *            remove.
 	 */
 	public void removeMessageListener(Integer subscriptionId) {
-		Integer callbackId = this.subscriptionIdMap.get(subscriptionId);
-		this.subscriptionIdMap.remove(callbackId);
-		this.callbackMap.remove(callbackId);
+		synchronized (listenerLock) {
+			List<Integer> callbackIds = this.subscriptionIdMap.remove(subscriptionId);
+			if (callbackIds == null) {
+				return;
+			}
+			for (Integer callbackId : callbackIds) {
+				this.callbackMap.remove(callbackId);
+				this.callbackSubscriptionIdMap.remove(callbackId);
+				// Reverse lookup the topic to remove that as well
+				removeValue(this.callbackTopicMap, callbackId);
+			}
+		}
+	}
 
-		// Reverse lookup the topic if it exists to remove that as well
-		for (Map.Entry<String, Integer> entry : this.callbackTopicMap.entrySet()) {
-			if (entry.getValue().equals(callbackId)) {
-				this.callbackTopicMap.remove(entry.getKey());
+	private static <K> void removeValue(Map<K, Integer> map, Integer value) {
+		for (Iterator<Map.Entry<K, Integer>> it = map.entrySet().iterator(); it.hasNext();) {
+			if (it.next().getValue().equals(value)) {
+				it.remove();
 			}
 		}
 	}
 
 	public void removeMessageListeners() {
-		this.callbackMap.clear();
-		this.subscriptionIdMap.clear();
-		this.callbackTopicMap.clear();
+		synchronized (listenerLock) {
+			this.callbackMap.clear();
+			this.subscriptionIdMap.clear();
+			this.callbackSubscriptionIdMap.clear();
+			this.callbackTopicMap.clear();
+		}
+	}
+
+	private boolean hasMessageListeners() {
+		synchronized (listenerLock) {
+			return !callbackMap.isEmpty();
+		}
 	}
 
 	protected boolean deliverMessage(String topicName, int messageId, MqttMessage aMessage) throws Exception {
 		boolean delivered = false;
 		String methodName = "deliverMessage";
 
-		if (aMessage.getProperties().getSubscriptionIdentifiers().isEmpty()) {
-			// No Subscription IDs, use topic filter matching
-			for (Map.Entry<String, Integer> entry : this.callbackTopicMap.entrySet()) {
-				if (MqttTopicValidator.isMatched(entry.getKey(), topicName)) {
-					aMessage.setId(messageId);
-					this.callbackMap.get(entry.getValue()).messageArrived(topicName, aMessage);
-					delivered = true;
-				}
-			}
-
-		} else {
-			// We have Subscription IDs
+		// collected under the lock, called outside it: a listener may subscribe or unsubscribe
+		List<IMqttMessageListener> listeners = new ArrayList<>(1);
+		synchronized (listenerLock) {
+			// Listeners of the Subscription IDs the server sent; one listener once per ID, even
+			// when it is linked to several filters of the same SUBSCRIBE
+			boolean knownSubscriptionId = false;
 			for (Integer subId : aMessage.getProperties().getSubscriptionIdentifiers()) {
-				if (this.subscriptionIdMap.containsKey(subId)) {
-					Integer callbackId = this.subscriptionIdMap.get(subId);
-					aMessage.setId(messageId);
-					this.callbackMap.get(callbackId).messageArrived(topicName, aMessage);
-					delivered = true;
+				List<Integer> callbackIds = this.subscriptionIdMap.get(subId);
+				if (callbackIds == null) {
+					continue;
+				}
+				knownSubscriptionId = true;
+				List<IMqttMessageListener> ofSubscriptionId = new ArrayList<>(1);
+				for (Integer callbackId : callbackIds) {
+					IMqttMessageListener listener = this.callbackMap.get(callbackId);
+					if (!containsInstance(ofSubscriptionId, listener)) {
+						ofSubscriptionId.add(listener);
+					}
+				}
+				listeners.addAll(ofSubscriptionId);
+			}
+			// Topic filter matching for the listeners subscribed without Subscription ID; for all
+			// of them when the message carries no Subscription ID this client knows
+			for (Map.Entry<String, Integer> entry : this.callbackTopicMap.entrySet()) {
+				if (knownSubscriptionId && this.callbackSubscriptionIdMap.containsKey(entry.getValue())) {
+					continue;
+				}
+				// a shared subscription matches with the filter after $share/<ShareName>/
+				if (MqttTopicValidator.isMatched(MqttTopicValidator.getMatchingTopicFilter(entry.getKey()), topicName)) {
+					listeners.add(this.callbackMap.get(entry.getValue()));
 				}
 			}
+		}
+		for (IMqttMessageListener listener : listeners) {
+			aMessage.setId(messageId);
+			listener.messageArrived(topicName, aMessage);
+			delivered = true;
 		}
 
 		/*
@@ -646,8 +734,43 @@ public class CommsCallback implements Runnable {
 		return delivered;
 	}
 
+	private static boolean containsInstance(List<IMqttMessageListener> listeners, IMqttMessageListener listener) {
+		for (IMqttMessageListener candidate : listeners) {
+			if (candidate == listener) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	public boolean doesSubscriptionIdentifierExist(int subscriptionIdentifier) {
-		return (this.subscriptionIdMap.containsKey(subscriptionIdentifier));
+		synchronized (listenerLock) {
+			return (this.subscriptionIdMap.containsKey(subscriptionIdentifier));
+		}
+	}
+
+	/**
+	 * Whether the subscription identifier is linked to a topic filter other than the given ones.
+	 *
+	 * @param subscriptionIdentifier
+	 *            the subscription identifier
+	 * @param topicFilters
+	 *            the topic filters that may use it
+	 * @return true if another topic filter uses the subscription identifier
+	 */
+	public boolean isSubscriptionIdentifierUsedByOtherFilter(int subscriptionIdentifier, Collection<String> topicFilters) {
+		synchronized (listenerLock) {
+			List<Integer> callbackIds = this.subscriptionIdMap.get(subscriptionIdentifier);
+			if (callbackIds == null) {
+				return false;
+			}
+			for (Map.Entry<String, Integer> entry : this.callbackTopicMap.entrySet()) {
+				if (callbackIds.contains(entry.getValue()) && !topicFilters.contains(entry.getKey())) {
+					return true;
+				}
+			}
+			return false;
+		}
 	}
 
 	public boolean isRunning() {

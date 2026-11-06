@@ -12,9 +12,12 @@
  *
  * Contributors:
  *    Dave Locke - initial API and implementation and/or initial documentation
+ *    Mark Hoffmann - client directory restricted to its owner
+ *    Mark Hoffmann - streams and lock file closed on errors
  */
 package org.eclipse.paho.mqttv5.client.persist;
 
+import java.io.EOFException;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -60,6 +63,13 @@ public class MqttDefaultFilePersistence implements MqttClientPersistence {
 		return FILENAME_FILTER;
 	}
 	
+	/**
+	 * Create a file-based persistent data store within the working directory
+	 * (<code>user.dir</code>). This is the persistence of the client constructors
+	 * without a persistence argument. The messages are stored in clear; prefer
+	 * an explicit directory, or {@link MemoryPersistence} if messages need not
+	 * survive a restart.
+	 */
 	public MqttDefaultFilePersistence()  { //throws MqttPersistenceException {
 		this(System.getProperty("user.dir"));
 	}
@@ -102,6 +112,7 @@ public class MqttDefaultFilePersistence implements MqttClientPersistence {
 				if (!clientDir.exists()) {
 					clientDir.mkdir();
 				}
+				restrictToOwner(clientDir);
 			}
 
 			try {
@@ -170,12 +181,16 @@ public class MqttDefaultFilePersistence implements MqttClientPersistence {
 		}
 		try {
 			FileOutputStream fos = new FileOutputStream(file);
-			fos.write(message.getHeaderBytes(), message.getHeaderOffset(), message.getHeaderLength());
-			if (message.getPayloadBytes()!=null) {
-				fos.write(message.getPayloadBytes(), message.getPayloadOffset(), message.getPayloadLength());
+			try {
+				fos.write(message.getHeaderBytes(), message.getHeaderOffset(), message.getHeaderLength());
+				if (message.getPayloadBytes()!=null) {
+					fos.write(message.getPayloadBytes(), message.getPayloadOffset(), message.getPayloadLength());
+				}
+				fos.getFD().sync();
+			} finally {
+				// also when the write fails, e.g. on a full disk
+				fos.close();
 			}
-			fos.getFD().sync();
-			fos.close();
 			if (backupFile.exists()) {
 				// The write has completed successfully, delete the backup 
 				backupFile.delete();
@@ -202,13 +217,21 @@ public class MqttDefaultFilePersistence implements MqttClientPersistence {
 		try {
 			File file = new File(clientDir, key+MESSAGE_FILE_EXTENSION);
 			FileInputStream fis = new FileInputStream(file);
-			int size = fis.available();
-			byte[] data = new byte[size];
-			int read = 0;
-			while (read<size) {
-				read += fis.read(data,read,size-read);
+			byte[] data;
+			try {
+				int size = fis.available();
+				data = new byte[size];
+				int read = 0;
+				while (read<size) {
+					int n = fis.read(data,read,size-read);
+					if (n < 0) {
+						throw new EOFException(file.getName());
+					}
+					read += n;
+				}
+			} finally {
+				fis.close();
 			}
-			fis.close();
 			result = new MqttPersistentData(key, data, 0, data.length, null, 0, 0);
 		} 
 		catch(IOException ex) {
@@ -255,6 +278,20 @@ public class MqttDefaultFilePersistence implements MqttClientPersistence {
 		return files;
 	}
 	
+	/**
+	 * Restricts the client directory to its owner; it holds the payloads of
+	 * unacknowledged messages in clear. Best effort: a file system without
+	 * permissions, or a directory of another user, keeps what it has.
+	 */
+	private static void restrictToOwner(File dir) {
+		dir.setReadable(false, false);
+		dir.setReadable(true, true);
+		dir.setWritable(false, false);
+		dir.setWritable(true, true);
+		dir.setExecutable(false, false);
+		dir.setExecutable(true, true);
+	}
+
 	private boolean isSafeChar(char c) {
 		return Character.isJavaIdentifierPart(c) || c=='-';
 	}

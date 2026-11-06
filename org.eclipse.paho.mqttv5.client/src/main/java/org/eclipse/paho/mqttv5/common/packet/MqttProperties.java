@@ -1386,7 +1386,7 @@ public class MqttProperties {
 			sb.append(", authenticationMethod=" + authenticationMethod);
 		}
 		if (authenticationData != null) {
-			sb.append(", authenticationData=" + Arrays.toString(authenticationData));
+			sb.append(", authenticationData=<" + authenticationData.length + " bytes hidden>");
 		}
 		if (reasonString != null) {
 			sb.append(", reasonString=" + reasonString);

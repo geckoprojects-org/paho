@@ -18,7 +18,15 @@ package org.eclipse.paho.mqttv5.client.internal;
  *    Ian Craggs - ack control (bug 472172)
  *    James Sutton - checkForActivity Token (bug 473928)
  *    James Sutton - Automatic Reconnect & Offline Buffering.
+ *    Mark Hoffmann - CONNACK timeout (issue #511)
+ *    Mark Hoffmann - DISCONNECT 0x95 on a too large packet
+ *    Mark Hoffmann - offline buffer releases message IDs and stored messages
+ *    Mark Hoffmann - disconnect after a reconnect that outlived disconnect()
+ *    Mark Hoffmann - queued publish limit
+ *    Mark Hoffmann - no read timeout once connected
  */
+import java.io.IOException;
+import java.util.Collection;
 import java.util.Enumeration;
 import java.util.Properties;
 import java.util.Vector;
@@ -83,6 +91,8 @@ public class ClientComms {
 	private boolean resting = false;
 	private DisconnectedMessageBuffer disconnectedMessageBuffer;
 	private ExecutorService executorService;
+	private volatile boolean connackPending; // a connect attempt is waiting for its CONNACK
+	private volatile long connackDeadlineNanos; // ... and must have it by then, see armConnackDeadline
 	private MqttConnectionState mqttConnection;
 
 	/**
@@ -135,6 +145,14 @@ public class ClientComms {
 	 * @throws MqttException
 	 */
 	void internalSend(MqttWireMessage message, MqttToken token) throws MqttException {
+		internalSend(message, token, false);
+	}
+
+	/**
+	 * @param buffered true for a message from the offline buffer, which keeps its message ID when
+	 *            it is refused
+	 */
+	private void internalSend(MqttWireMessage message, MqttToken token, boolean buffered) throws MqttException {
 		final String methodName = "internalSend";
 		// @TRACE 200=internalSend key={0} message={1} token={2}
 		log.fine(CLASS_NAME, methodName, "200", new Object[] { message.getKey(), message, token });
@@ -156,7 +174,7 @@ public class ClientComms {
 		} catch (MqttException e) {
 			token.internalTok.setClient(null); // undo client setting on error
 			if (message instanceof MqttPublish) {
-				this.clientState.undo((MqttPublish) message);
+				this.clientState.undo((MqttPublish) message, buffered);
 			}
 			throw e;
 		}
@@ -189,10 +207,7 @@ public class ClientComms {
 					messageProps.setTopicAlias(null);
 					message.setProperties(messageProps);
 				}
-				if (disconnectedMessageBuffer.isPersistBuffer()) {
-					this.clientState.persistBufferedMessage(message);
-				}
-				disconnectedMessageBuffer.putMessage(message, token);
+				bufferMessage(message, token);
 
 			} else {
 
@@ -221,14 +236,34 @@ public class ClientComms {
 			// @TRACE 508=Client Resting, Offline Buffer available. Adding message to
 			// buffer. message={0}
 			log.fine(CLASS_NAME, methodName, "508", new Object[] { message.getKey() });
-			if (disconnectedMessageBuffer.isPersistBuffer()) {
-				this.clientState.persistBufferedMessage(message);
-			}
-			disconnectedMessageBuffer.putMessage(message, token);
+			bufferMessage(message, token);
 		} else {
 			// @TRACE 208=failed: not connected
 			log.fine(CLASS_NAME, methodName, "208");
 			throw ExceptionHelper.createMqttException(MqttClientException.REASON_CODE_CLIENT_NOT_CONNECTED);
+		}
+	}
+
+	/**
+	 * Adds the message to the offline buffer, stored if so configured. A message the buffer refuses
+	 * or discards as the oldest releases what it took.
+	 */
+	private void bufferMessage(MqttWireMessage message, MqttToken token) throws MqttException {
+		boolean stored = disconnectedMessageBuffer.isPersistBuffer() && message instanceof MqttPublish;
+		if (stored) {
+			this.clientState.persistBufferedMessage(message);
+		}
+		BufferedMessage discarded;
+		try {
+			discarded = disconnectedMessageBuffer.putMessage(message, token);
+		} catch (MqttException e) {
+			this.clientState.discardBufferedMessage(message, stored);
+			throw e;
+		}
+		if (discarded != null) {
+			MqttWireMessage old = discarded.getMessage();
+			this.clientState.discardBufferedMessage(old,
+					disconnectedMessageBuffer.isPersistBuffer() && old instanceof MqttPublish);
 		}
 	}
 
@@ -328,6 +363,7 @@ public class ClientComms {
 				 */
 				this.mqttConnection.setKeepAliveSeconds(conOptions.getKeepAliveInterval());
 				this.clientState.setCleanStart(conOptions.isCleanStart());
+				this.clientState.setMaxQueuedMessages(conOptions.getMaxQueuedMessages());
 
 				tokenStore.open();
 				ConnectBG conbg = new ConnectBG(this, token, connect, executorService);
@@ -348,6 +384,21 @@ public class ClientComms {
 		}
 	}
 
+	/**
+	 * The receiver needs its read timeout only until the CONNACK (deadline check);
+	 * once connected, a TCP network module lets it block until data arrives or the
+	 * module is stopped, so that an idle client does not wake up every second.
+	 */
+	private void connected(NetworkModule networkModule) {
+		if (networkModule instanceof TCPNetworkModule) {
+			try {
+				((TCPNetworkModule) networkModule).connected();
+			} catch (IOException e) {
+				// keeps the read timeout
+			}
+		}
+	}
+
 	public void connectComplete(MqttConnAck cack, MqttException mex) throws MqttException {
 		final String methodName = "connectComplete";
 		int rc = cack.getReturnCode();
@@ -358,6 +409,8 @@ public class ClientComms {
 				log.fine(CLASS_NAME, methodName, "215");
 
 				conState = CONNECTED;
+				clearConnackDeadline();
+				connected(networkModules[networkModuleIndex]);
 				return;
 			}
 		}
@@ -395,6 +448,7 @@ public class ClientComms {
 				return;
 			}
 			stoppingComms = true;
+			clearConnackDeadline();
 
 			// @TRACE 216=state=DISCONNECTING
 			log.fine(CLASS_NAME, methodName, "216");
@@ -571,6 +625,25 @@ public class ClientComms {
 		}
 	}
 
+	/**
+	 * Disconnects after an automatic reconnect attempt that completed although the application
+	 * had disconnected meanwhile. Unlike {@link #disconnect(MqttDisconnect, long, MqttToken)} it may
+	 * run on the callback thread: nothing waits for the token there.
+	 *
+	 * @param disconnect the DISCONNECT to send
+	 * @param token the token of the disconnect
+	 */
+	public void disconnectAfterReconnect(MqttDisconnect disconnect, MqttToken token) {
+		synchronized (conLock) {
+			if (!isConnected()) {
+				return;
+			}
+			conState = DISCONNECTING;
+			DisconnectBG discbg = new DisconnectBG(disconnect, 0, token, executorService);
+			discbg.start();
+		}
+	}
+
 	public void disconnectForcibly(long quiesceTimeout, long disconnectTimeout, int reasonCode,
 			MqttProperties disconnectProperties) throws MqttException {
 		disconnectForcibly(quiesceTimeout, disconnectTimeout, true, reasonCode, disconnectProperties);
@@ -613,6 +686,32 @@ public class ClientComms {
 		} finally {
 			token.internalTok.markComplete(null, null);
 			shutdownConnection(token, null, null);
+		}
+	}
+
+	/**
+	 * Tells the server why the client closes the connection itself (MQTT 5.0, 4.13): sends a
+	 * DISCONNECT with the reason code on the existing sender, best effort. Waits at most
+	 * {@code timeoutMillis} for it to be written and ignores any failure, as the connection is
+	 * closed afterwards anyway.
+	 *
+	 * @param reasonCode
+	 *            the reason code of the DISCONNECT
+	 * @param timeoutMillis
+	 *            the longest time to wait for the write
+	 */
+	void sendDisconnectBeforeClosing(int reasonCode, long timeoutMillis) {
+		if (!isConnected() || sender == null || !sender.isRunning()) {
+			return;
+		}
+		MqttToken token = new MqttToken(client.getClientId());
+		try {
+			internalSend(new MqttDisconnect(reasonCode, new MqttProperties()), token);
+			token.internalTok.waitUntilSent(timeoutMillis);
+		} catch (MqttException e) {
+			// the connection is closed anyway
+		} finally {
+			token.internalTok.markComplete(null, null);
 		}
 	}
 
@@ -733,6 +832,31 @@ public class ClientComms {
 		return props;
 	}
 
+	/**
+	 * Starts the clock for the CONNACK. connectionTimeout so far only covered the socket connect
+	 * and the TLS handshake; an attempt whose TCP connection came up but whose CONNACK never
+	 * arrives stayed in CONNECTING forever, because the receiver keeps looping on read timeouts
+	 * while connecting, the ping sender only starts once connected, and the reconnect cycle only
+	 * moves on from onSuccess/onFailure of the attempt. Half-open connections on mobile networks
+	 * trigger exactly that. The receiver thread, awake once a second anyway, checks the deadline
+	 * through isConnackOverdue(); no additional thread or timer is involved. A connectionTimeout of 0
+	 * keeps waiting indefinitely, as before.
+	 */
+	private void armConnackDeadline() {
+		int timeout = conOptions == null ? 0 : conOptions.getConnectionTimeout();
+		connackDeadlineNanos = System.nanoTime() + timeout * 1000000000L;
+		connackPending = timeout > 0;
+	}
+
+	private void clearConnackDeadline() {
+		connackPending = false;
+	}
+
+	/** True while a connect attempt is pending whose CONNACK is overdue. */
+	public boolean isConnackOverdue() {
+		return connackPending && System.nanoTime() - connackDeadlineNanos > 0 && isConnecting();
+	}
+
 	// Kick off the connect processing in the background so that it does not block.
 	// For instance
 	// the socket could take time to create.
@@ -787,6 +911,7 @@ public class ClientComms {
 				sender.start("MQTT Snd: " + getClient().getClientId(), executorService);
 				callback.start("MQTT Call: " + getClient().getClientId(), executorService);
 				internalSend(conPacket, conToken);
+				armConnackDeadline();
 			} catch (MqttException ex) {
 				// @TRACE 212=connect failed: unexpected exception
 				log.fine(CLASS_NAME, methodName, "212", null, ex);
@@ -955,7 +1080,7 @@ public class ClientComms {
 			if (isConnected()) {
 				// @TRACE 510=Publising Buffered message message={0}
 				log.fine(CLASS_NAME, methodName, "510", new Object[] { bufferedMessage.getMessage().getKey() });
-				internalSend(bufferedMessage.getMessage(), bufferedMessage.getToken());
+				internalSend(bufferedMessage.getMessage(), bufferedMessage.getToken(), true);
 				// Delete from persistence if in there
 				clientState.unPersistBufferedMessage(bufferedMessage.getMessage());
 			} else {
@@ -972,7 +1097,10 @@ public class ClientComms {
 
 	public boolean doesSubscriptionIdentifierExist(int subscriptionIdentifier) {
 		return this.callback.doesSubscriptionIdentifierExist(subscriptionIdentifier);
+	}
 
+	public boolean isSubscriptionIdentifierUsedByOtherFilter(int subscriptionIdentifier, Collection<String> topicFilters) {
+		return this.callback.isSubscriptionIdentifierUsedByOtherFilter(subscriptionIdentifier, topicFilters);
 	}
 
 }

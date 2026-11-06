@@ -84,8 +84,12 @@ public class PublishTests {
 		deliveryToken.waitForCompletion(5000);
 		log.info(deliveryToken.getResponse().toString());
 		log.info("Return codes: " + Arrays.toString(deliveryToken.getReasonCodes()));
-		int[] expectedRC = new int[] {16, 0};
-		Assert.assertArrayEquals(expectedRC, deliveryToken.getReasonCodes());
+		// PUBREC: 0x10 (No matching subscribers) MAY replace 0x00 (MQTT 5.0, 3.5.2.1), Mosquitto
+		// sends 0x00; PUBCOMP: 0x00
+		int[] reasonCodes = deliveryToken.getReasonCodes();
+		Assert.assertEquals(2, reasonCodes.length);
+		Assert.assertTrue("PUBREC reason code " + reasonCodes[0], reasonCodes[0] == 0 || reasonCodes[0] == 16);
+		Assert.assertEquals("PUBCOMP reason code", 0, reasonCodes[1]);
 
 		log.info("Disconnecting...");
 		IMqttToken disconnectToken = asyncClient.disconnect();

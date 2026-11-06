@@ -12,6 +12,7 @@
  *
  * Contributors:
  *    Dave Locke - initial API and implementation and/or initial documentation
+ *    Mark Hoffmann - {xor} documented as obfuscation only
  */
 package org.eclipse.paho.client.mqttv3.internal.security;
 
@@ -278,8 +279,18 @@ public class SSLSocketFactoryFactory {
 	 * @param password
 	 *            The password to be encrypted, as a char[] array.
 	 * @return An obfuscated password as a String.
+	 * @deprecated The <code>{xor}</code> form is an encoding, not protection:
+	 *             anyone who has the configuration has the password (CWE-261).
+	 *             Keep store passwords in a secret store of the platform and
+	 *             pass an {@link javax.net.ssl.SSLSocketFactory} built from them
+	 *             to the connect options (<code>setSocketFactory</code>).
 	 */
+	@Deprecated
 	public static String obfuscate(char[] password) {
+		return xor(password);
+	}
+
+	private static String xor(char[] password) {
 		if (password == null)
 			return null;
 		byte[] bytes = toByte(password);
@@ -379,12 +390,12 @@ public class SSLSocketFactoryFactory {
 	private void convertPassword(Properties p) {
 		String pw = p.getProperty(KEYSTOREPWD);
 		if (pw != null && !pw.startsWith(xorTag)) {
-			String epw = obfuscate(pw.toCharArray());
+			String epw = xor(pw.toCharArray());
 			p.put(KEYSTOREPWD, epw);
 		}
 		pw = p.getProperty(TRUSTSTOREPWD);
 		if (pw != null && !pw.startsWith(xorTag)) {
-			String epw = obfuscate(pw.toCharArray());
+			String epw = xor(pw.toCharArray());
 			p.put(TRUSTSTOREPWD, epw);
 		}
 	}

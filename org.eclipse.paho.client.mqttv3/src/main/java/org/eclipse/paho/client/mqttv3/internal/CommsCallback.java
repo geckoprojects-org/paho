@@ -15,6 +15,7 @@
  *    Ian Craggs - per subscription message handlers (bug 466579)
  *    Ian Craggs - ack control (bug 472172)
  *    James Sutton - Automatic Reconnect & Offline Buffering    
+ *    Mark Hoffmann - message listeners of shared subscriptions
  */
 package org.eclipse.paho.client.mqttv3.internal;
 
@@ -56,7 +57,7 @@ public class CommsCallback implements Runnable {
 	private static final int INBOUND_QUEUE_SIZE = 10;
 	private MqttCallback mqttCallback;
 	private MqttCallbackExtended reconnectInternalCallback;
-	private final Hashtable<String, IMqttMessageListener> callbacksWildcards; // topicFilter with wildcards -> messageHandler
+	private final Hashtable<String, IMqttMessageListener> callbacksWildcards; // topicFilter with wildcards or shared -> messageHandler
 	private final Hashtable<String, IMqttMessageListener> callbacksDirect; // topicFilter without wildcards -> messageHandler
 	private final ClientComms clientComms;
 	private final Vector<MqttWireMessage> messageQueue;
@@ -391,6 +392,20 @@ public class CommsCallback implements Runnable {
 					workAvailable.notifyAll();
 				}
 			}
+		} else {
+			// No callback and no message listener (yet), e.g. a message of a persistent session
+			// that arrives right after the CONNACK, before the application subscribes. Nobody can
+			// take it; acknowledge it all the same, as handleMessage does for a message no listener
+			// matches. Without the acknowledgement the server redelivers it on every connect.
+			// @TRACE 730=no callback or message listener; message {0} on topic {1} acknowledged and discarded
+			log.warning(CLASS_NAME, methodName, "730",
+					new Object[] { Integer.valueOf(sendMessage.getMessageId()), sendMessage.getTopicName() });
+			try {
+				acknowledge(sendMessage);
+			} catch (MqttException ex) {
+				// @TRACE 731=could not acknowledge discarded message {0}
+				log.fine(CLASS_NAME, methodName, "731", new Object[] { Integer.valueOf(sendMessage.getMessageId()) }, ex);
+			}
 		}
 	}
 
@@ -434,15 +449,20 @@ public class CommsCallback implements Runnable {
 				publishMessage.getMessage());
 
 		if (!this.manualAcks) {
-			if (publishMessage.getMessage().getQos() == 1) {
-				this.clientComms.internalSend(new MqttPubAck(publishMessage),
-						new MqttToken(clientComms.getClient().getClientId()));
-			} else if (publishMessage.getMessage().getQos() == 2) {
-				this.clientComms.deliveryComplete(publishMessage);
-				MqttPubComp pubComp = new MqttPubComp(publishMessage);
-				this.clientComms.internalSend(pubComp, new MqttToken(
-						clientComms.getClient().getClientId()));
-			}
+			acknowledge(publishMessage);
+		}
+	}
+
+	/** Sends the acknowledgement that completes the flow of a received QoS 1 or QoS 2 message. */
+	private void acknowledge(MqttPublish publishMessage) throws MqttException {
+		if (publishMessage.getMessage().getQos() == 1) {
+			this.clientComms.internalSend(new MqttPubAck(publishMessage),
+					new MqttToken(clientComms.getClient().getClientId()));
+		} else if (publishMessage.getMessage().getQos() == 2) {
+			this.clientComms.deliveryComplete(publishMessage);
+			MqttPubComp pubComp = new MqttPubComp(publishMessage);
+			this.clientComms.internalSend(pubComp, new MqttToken(
+					clientComms.getClient().getClientId()));
 		}
 	}
 	
@@ -497,7 +517,10 @@ public class CommsCallback implements Runnable {
 
 
 	public void setMessageListener(String topicFilter, IMqttMessageListener messageListener) {
-		if (topicFilter.contains("#") || topicFilter.contains("+")) {
+		// a shared subscription is matched by the filter after $share/<ShareName>/, see deliverMessage;
+		// it keeps its own key, so that it neither replaces nor removes a listener of the plain filter
+		if (topicFilter.contains("#") || topicFilter.contains("+")
+				|| topicFilter.startsWith(MqttTopic.SHARED_SUBSCRIPTION_PREFIX)) {
 			this.callbacksWildcards.put(topicFilter, messageListener);
 		} else {
 			this.callbacksDirect.put(topicFilter, messageListener);
@@ -535,7 +558,7 @@ public class CommsCallback implements Runnable {
 			if(callback == null) {
 				continue;
 			}
-			if (MqttTopic.isMatched(topicFilter, topicName)) {
+			if (MqttTopic.isMatched(MqttTopic.getMatchingTopicFilter(topicFilter), topicName)) {
 				aMessage.setId(messageId);
 				callback.messageArrived(topicName, aMessage);
 				delivered = true;

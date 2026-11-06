@@ -12,6 +12,7 @@
  *
  * Contributors:
  *    James Sutton - Initial Contribution for Automatic Reconnect & Offline Buffering
+ *    Mark Hoffmann - offline buffer releases message IDs and stored messages
  */
 package org.eclipse.paho.mqttv5.client.internal;
 
@@ -48,16 +49,19 @@ public class DisconnectedMessageBuffer implements Runnable {
 	 * MqttException will be thrown.
 	 * @param message the {@link MqttWireMessage} that will be buffered
 	 * @param token the associated {@link MqttToken}
+	 * @return the message discarded to make room, or null
 	 * @throws MqttException if the Buffer is full
 	 */
-	public void putMessage(MqttWireMessage message, MqttToken token) throws MqttException{
+	public BufferedMessage putMessage(MqttWireMessage message, MqttToken token) throws MqttException{
 		BufferedMessage bufferedMessage = new BufferedMessage(message, token);
 		synchronized (bufLock) {
 			if(buffer.size() < bufferOpts.getBufferSize()){
 				buffer.add(bufferedMessage);
+				return null;
 			} else if(bufferOpts.isDeleteOldestMessages() == true){
-				buffer.remove(0);
+				BufferedMessage discarded = buffer.remove(0);
 				buffer.add(bufferedMessage);
+				return discarded;
 			}else {
 				throw new MqttException(MqttClientException.REASON_CODE_DISCONNECTED_BUFFER_FULL);
 			}

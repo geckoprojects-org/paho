@@ -12,17 +12,41 @@
  *
  * Contributors:
  *    James Sutton - Bug 459142 - WebSocket support for the Java client.
+ *    Mark Hoffmann - bounded WebSocket input
+ *    Mark Hoffmann - ping, pong and fragmented frames
+ *    Mark Hoffmann - bulk pipe writes, one SecureRandom for the masking keys
  */
 package org.eclipse.paho.mqttv5.client.websocket;
 
+import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.security.SecureRandom;
 
 public class WebSocketFrame {
+
+	/** Source of the masking keys; one for all frames, SecureRandom is thread-safe. */
+	private static final SecureRandom MASKING_KEYS = new SecureRandom();
+
+	/**
+	 * The largest payload of an inbound frame unless the client sets a lower
+	 * limit: the largest MQTT packet (fixed header and remaining length).
+	 */
+	public static final int MAX_PAYLOAD_LENGTH = 268435455 + 5;
+
 	
 	public static final int frameLengthOverhead = 6;
+
+	/** Opcodes of RFC 6455, section 5.2. */
+	public static final byte OPCODE_CONTINUATION = 0x00;
+	public static final byte OPCODE_BINARY = 0x02;
+	public static final byte OPCODE_CLOSE = 0x08;
+	public static final byte OPCODE_PING = 0x09;
+	public static final byte OPCODE_PONG = 0x0A;
+
+	/** The largest payload of a control frame (RFC 6455, section 5.5). */
+	public static final int MAX_CONTROL_PAYLOAD_LENGTH = 125;
 	
 	private byte opcode;
 	private boolean fin;
@@ -130,64 +154,101 @@ public class WebSocketFrame {
 	 * @throws IOException if an exception occurs whilst reading the input stream
 	 */
 	public WebSocketFrame(InputStream input) throws IOException {
-		byte firstByte = (byte) input.read();
-		setFinAndOpCode(firstByte);
-		if(this.opcode == 2){
-			byte maskLengthByte = (byte) input.read();
-			boolean masked = ((maskLengthByte & 0x80) != 0);
-			int payloadLength = (byte)(0x7F & maskLengthByte);
-			int byteCount = 0;
-			if(payloadLength == 0X7F){
-				// 8 Byte Extended payload length
-				byteCount = 8;
-			} else if (payloadLength == 0X7E){
-				// 2 bytes extended payload length
-				byteCount = 2;
-			}
-			
-			// Decode the payload length
-			if(byteCount > 0){
-				payloadLength = 0;
-			}
-			while (--byteCount >= 0){
-				maskLengthByte = (byte) input.read();
-				payloadLength |= (maskLengthByte & 0xFF) << (8 * byteCount);
-			}
-			
-			// Get the masking key
-			byte[] maskingKey = null;
-			if(masked) {
-				maskingKey = new byte[4];
-				input.read(maskingKey,0,4);
-			}
+		this(input, MAX_PAYLOAD_LENGTH);
+	}
 
-			this.payload = new byte[payloadLength];
-			int offsetIndex = 0;
-			int tempLength = payloadLength;
-			int bytesRead = 0;
-			while (offsetIndex != payloadLength){
-					bytesRead = input.read(this.payload,offsetIndex,tempLength);
-					offsetIndex += bytesRead;
-					tempLength -= bytesRead;
-			}
-			
-			
-			// Demask if needed
-			if(masked)
-			{
-				for(int i = 0; i < this.payload.length; i++){
-					this.payload[i] ^= maskingKey[i % 4];
-				}
-			}
-			return;
-		} else if(this.opcode == 8){
+	/**
+	 * Reads a frame from the input stream. The payload length is checked
+	 * before the payload is allocated.
+	 *
+	 * @param input
+	 *            The incoming {@link InputStream}
+	 * @param maxPayloadLength
+	 *            the largest payload accepted
+	 * @throws IOException
+	 *             if an exception occurs whilst reading the input stream, the
+	 *             stream ends within the frame or the payload is longer than
+	 *             <code>maxPayloadLength</code>
+	 */
+	public WebSocketFrame(InputStream input, int maxPayloadLength) throws IOException {
+		byte firstByte = (byte) readByte(input);
+		setFinAndOpCode(firstByte);
+		if (this.opcode == OPCODE_CLOSE) {
 			// Closing connection with server
 			closeFlag = true;
-		} else {
-			throw new IOException("Invalid Frame: Opcode: " +this.opcode);
+			return;
 		}
-		
-		
+		if (this.opcode == OPCODE_PING || this.opcode == OPCODE_PONG) {
+			// Control frames are not fragmented and carry at most 125 bytes
+			if (!this.fin) {
+				throw new IOException("Invalid Frame: fragmented control frame");
+			}
+			maxPayloadLength = Math.min(maxPayloadLength, MAX_CONTROL_PAYLOAD_LENGTH);
+		} else if (this.opcode != OPCODE_BINARY && this.opcode != OPCODE_CONTINUATION) {
+			throw new IOException("Invalid Frame: Opcode: " + this.opcode);
+		}
+		int maskLengthByte = readByte(input);
+		boolean masked = ((maskLengthByte & 0x80) != 0);
+		long payloadLength = maskLengthByte & 0x7F;
+		int byteCount = 0;
+		if (payloadLength == 0X7F) {
+			// 8 Byte Extended payload length
+			byteCount = 8;
+		} else if (payloadLength == 0X7E) {
+			// 2 bytes extended payload length
+			byteCount = 2;
+		}
+
+		// Decode the payload length; checked per byte, so that the
+		// 64-bit length cannot overflow
+		if (byteCount > 0) {
+			payloadLength = 0;
+		}
+		while (--byteCount >= 0) {
+			payloadLength = (payloadLength << 8) | readByte(input);
+			if (payloadLength > maxPayloadLength) {
+				break;
+			}
+		}
+		if (payloadLength > maxPayloadLength) {
+			throw new IOException("Invalid Frame: payload longer than " + maxPayloadLength + " bytes");
+		}
+
+		// Get the masking key
+		byte[] maskingKey = null;
+		if (masked) {
+			maskingKey = new byte[4];
+			readFully(input, maskingKey);
+		}
+
+		this.payload = new byte[(int) payloadLength];
+		readFully(input, this.payload);
+
+		// Demask if needed
+		if (masked) {
+			for (int i = 0; i < this.payload.length; i++) {
+				this.payload[i] ^= maskingKey[i % 4];
+			}
+		}
+	}
+
+	private static int readByte(InputStream input) throws IOException {
+		int b = input.read();
+		if (b < 0) {
+			throw new EOFException("Invalid Frame: end of stream");
+		}
+		return b;
+	}
+
+	private static void readFully(InputStream input, byte[] buffer) throws IOException {
+		int offset = 0;
+		while (offset < buffer.length) {
+			int count = input.read(buffer, offset, buffer.length - offset);
+			if (count < 0) {
+				throw new EOFException("Invalid Frame: end of stream");
+			}
+			offset += count;
+		}
 	}
 
 
@@ -291,12 +352,9 @@ public class WebSocketFrame {
 	 * @return ByteArray containing the key;
 	 */
 	public static byte[] generateMaskingKey(){
-		SecureRandom secureRandomGenerator = new SecureRandom();
-		int a = secureRandomGenerator.nextInt(255);
-		int b = secureRandomGenerator.nextInt(255);
-		int c = secureRandomGenerator.nextInt(255);
-		int d = secureRandomGenerator.nextInt(255);
-		return new byte[] {(byte) a,(byte) b,(byte) c,(byte) d};
+		byte[] key = new byte[4];
+		MASKING_KEYS.nextBytes(key);
+		return key;
 	}
 
 

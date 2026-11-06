@@ -1,0 +1,147 @@
+/*******************************************************************************
+ * Copyright (c) 2026 Data In Motion Consulting GmbH.
+ *
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v2.0
+ * and Eclipse Distribution License v1.0 which accompany this distribution.
+ *
+ * The Eclipse Public License is available at
+ *    https://www.eclipse.org/legal/epl-2.0
+ * and the Eclipse Distribution License is available at
+ *   https://www.eclipse.org/org/documents/edl-v10.php
+ *
+ * Contributors:
+ *    Mark Hoffmann - initial API and implementation
+ *******************************************************************************/
+package org.eclipse.paho.mqttv5.client.test;
+
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
+
+import org.eclipse.paho.mqttv5.client.IMqttToken;
+import org.eclipse.paho.mqttv5.client.MqttActionListener;
+import org.eclipse.paho.mqttv5.client.MqttAsyncClient;
+import org.eclipse.paho.mqttv5.client.MqttClientException;
+import org.eclipse.paho.mqttv5.client.MqttConnectionOptions;
+import org.eclipse.paho.mqttv5.client.persist.MemoryPersistence;
+import org.eclipse.paho.mqttv5.client.test.utilities.FakeMqttBroker;
+import org.eclipse.paho.mqttv5.client.test.utilities.TestTiming;
+import org.eclipse.paho.mqttv5.common.MqttException;
+import org.junit.After;
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Test;
+
+/**
+ * A connect attempt whose TCP connection comes up but whose CONNACK never arrives must fail after
+ * connectionTimeout (issue #511). Runs without an external broker.
+ */
+public class ConnackTimeoutTest {
+
+	private static final int CONNECTION_TIMEOUT_S = 1;
+	private static final int MAX_RECONNECT_DELAY_MS = 2000;
+	/**
+	 * Longest a connect attempt without CONNACK takes: the deadline of connectionTimeout plus up to
+	 * one read timeout of the receiver, which checks the deadline.
+	 */
+	private static final long ATTEMPT_MAX_MS = CONNECTION_TIMEOUT_S * 1000L + 1000;
+
+	private FakeMqttBroker broker;
+	private MqttAsyncClient client;
+
+	@Before
+	public void setUp() throws Exception {
+		broker = new FakeMqttBroker();
+	}
+
+	@After
+	public void tearDown() throws Exception {
+		if (client != null) {
+			try {
+				client.disconnectForcibly(0, 100, false);
+			} catch (MqttException e) {
+				// not connected
+			}
+			client.close(true);
+		}
+		broker.close();
+	}
+
+	private static MqttConnectionOptions options(int connectionTimeout) {
+		MqttConnectionOptions options = new MqttConnectionOptions();
+		options.setConnectionTimeout(connectionTimeout);
+		options.setKeepAliveInterval(30);
+		return options;
+	}
+
+	private static class Outcome implements MqttActionListener {
+		final CountDownLatch done = new CountDownLatch(1);
+		final AtomicReference<Throwable> failure = new AtomicReference<Throwable>();
+
+		public void onSuccess(IMqttToken asyncActionToken) {
+			done.countDown();
+		}
+
+		public void onFailure(IMqttToken asyncActionToken, Throwable exception) {
+			failure.set(exception);
+			done.countDown();
+		}
+	}
+
+	@Test
+	public void testConnectFailsWhenConnackIsMissing() throws Exception {
+		broker.setAnswering(false);
+		client = new MqttAsyncClient(broker.getServerURI(), "connack-timeout", new MemoryPersistence());
+		Outcome outcome = new Outcome();
+		client.connect(options(CONNECTION_TIMEOUT_S), null, outcome);
+
+		Assert.assertTrue("Connect callback not called although no CONNACK arrived", outcome.done.await(TestTiming.scaled(ATTEMPT_MAX_MS + 3000), TimeUnit.MILLISECONDS));
+		Assert.assertTrue("Connect did not fail", outcome.failure.get() instanceof MqttException);
+		Assert.assertEquals(MqttClientException.REASON_CODE_CLIENT_TIMEOUT, ((MqttException) outcome.failure.get()).getReasonCode());
+		Assert.assertFalse(client.isConnected());
+
+		// The client is not left in CONNECTING: the next attempt goes through.
+		broker.setAnswering(true);
+		client.connect(options(CONNECTION_TIMEOUT_S)).waitForCompletion(TestTiming.scaled(5000));
+		Assert.assertTrue(client.isConnected());
+	}
+
+	@Test
+	public void testReconnectContinuesWhenConnackIsMissing() throws Exception {
+		client = new MqttAsyncClient(broker.getServerURI(), "connack-timeout-reconnect", new MemoryPersistence());
+		MqttConnectionOptions options = options(CONNECTION_TIMEOUT_S);
+		options.setAutomaticReconnect(true);
+		options.setMaxReconnectDelay(MAX_RECONNECT_DELAY_MS);
+		client.connect(options).waitForCompletion(TestTiming.scaled(5000));
+		Assert.assertEquals(1, broker.getConnectCount());
+
+		broker.setAnswering(false);
+		broker.dropConnections();
+
+		boolean retried = TestTiming.waitFor(new TestTiming.Condition() {
+			public boolean met() {
+				return broker.getConnectCount() >= 3;
+			}
+		}, 15000);
+		Assert.assertTrue("Reconnect cycle stopped after an attempt without CONNACK, CONNECT count: "
+				+ broker.getConnectCount(), retried);
+
+		broker.setAnswering(true);
+		Assert.assertTrue("Client did not reconnect once the server answered again", TestTiming.waitFor(new TestTiming.Condition() {
+			public boolean met() {
+				return client.isConnected();
+			}
+		}, 10000));
+	}
+
+	@Test
+	public void testZeroConnectionTimeoutKeepsWaiting() throws Exception {
+		broker.setAnswering(false);
+		client = new MqttAsyncClient(broker.getServerURI(), "connack-no-timeout", new MemoryPersistence());
+		Outcome outcome = new Outcome();
+		client.connect(options(0), null, outcome);
+
+		Assert.assertFalse("connectionTimeout=0 must keep waiting for the CONNACK", outcome.done.await(TestTiming.scaled(ATTEMPT_MAX_MS + 500), TimeUnit.MILLISECONDS));
+	}
+}

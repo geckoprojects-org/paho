@@ -22,6 +22,7 @@ import javax.net.ssl.SSLSocketFactory;
 import org.eclipse.paho.mqttv5.client.MqttClientException;
 import org.eclipse.paho.mqttv5.client.MqttConnectionOptions;
 import org.eclipse.paho.mqttv5.client.internal.NetworkModule;
+import org.eclipse.paho.mqttv5.client.internal.NetworkModuleService;
 import org.eclipse.paho.mqttv5.client.internal.SSLNetworkModule;
 import org.eclipse.paho.mqttv5.client.security.SSLSocketFactoryFactory;
 import org.eclipse.paho.mqttv5.client.spi.NetworkModuleFactory;
@@ -44,8 +45,8 @@ public class WebSocketSecureNetworkModuleFactory implements NetworkModuleFactory
 	public NetworkModule createNetworkModule(URI brokerUri, MqttConnectionOptions options, String clientId)
 			throws MqttException
 	{
-		String host = brokerUri.getHost();
-		int port = brokerUri.getPort(); // -1 if not defined
+		String host = NetworkModuleService.getHost(brokerUri);
+		int port = NetworkModuleService.getPort(brokerUri); // -1 if not defined
 		if (port == -1) {
 			port = 443;
 		}
@@ -67,6 +68,10 @@ public class WebSocketSecureNetworkModuleFactory implements NetworkModuleFactory
 		WebSocketSecureNetworkModule netModule = new WebSocketSecureNetworkModule((SSLSocketFactory) factory,
 				brokerUri.toString(), host, port, clientId);
 		netModule.setSSLhandshakeTimeout(options.getConnectionTimeout());
+		Long maximumPacketSize = options.getMaximumPacketSize();
+		if (maximumPacketSize != null && maximumPacketSize.longValue() < WebSocketFrame.MAX_PAYLOAD_LENGTH) {
+			netModule.setMaxFramePayloadLength(maximumPacketSize.intValue());
+		}
 		netModule.setSSLHostnameVerifier(options.getSSLHostnameVerifier());
 		netModule.setHttpsHostnameVerificationEnabled(options.isHttpsHostnameVerificationEnabled());
 		netModule.setCustomWebSocketHeaders(options.getCustomWebSocketHeaders());

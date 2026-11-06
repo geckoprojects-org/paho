@@ -12,16 +12,24 @@
  *
  * Contributors:
  *    James Sutton - initial API and implementation and/or initial documentation
+ *    Mark Hoffmann - automatic reconnect fixes, warning for credentials without TLS, timers on the
+ *                    application's executor
+ *    Mark Hoffmann - disconnect after a reconnect that outlived disconnect()
+ *    Mark Hoffmann - subscription identifier sent with the SUBSCRIBE, read from its own property
  */
 
 package org.eclipse.paho.mqttv5.client;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.util.Hashtable;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.Properties;
-import java.util.Timer;
-import java.util.TimerTask;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 
@@ -29,6 +37,7 @@ import javax.net.SocketFactory;
 import org.eclipse.paho.mqttv5.client.internal.ClientComms;
 import org.eclipse.paho.mqttv5.client.internal.ConnectActionListener;
 import org.eclipse.paho.mqttv5.client.internal.DisconnectedMessageBuffer;
+import org.eclipse.paho.mqttv5.client.internal.MonotonicTimer;
 import org.eclipse.paho.mqttv5.client.internal.MqttConnectionState;
 import org.eclipse.paho.mqttv5.client.internal.MqttSessionState;
 import org.eclipse.paho.mqttv5.client.internal.NetworkModule;
@@ -234,11 +243,33 @@ public class MqttAsyncClient implements MqttClientInterface, IMqttAsyncClient {
 	private MqttCallback mqttCallback;
 	private MqttConnectionOptions connOpts;
 	private Object userContext;
-	private Timer reconnectTimer; // Automatic reconnect timer
-	private static int reconnectDelay = 1000; // Reconnect delay, starts at 1
+	private MonotonicTimer reconnectTimer; // Automatic reconnect timer
+	private int reconnectDelay = 1000; // Reconnect delay, starts at 1
 												// second
 	private boolean reconnecting = false;
-	private static final Object clientLock = new Object(); // Simple lock
+	private final Object clientLock = new Object(); // Simple lock
+	// The application ended the automatic reconnect cycle (disconnect, close); guarded by clientLock
+	private boolean reconnectCycleEnded = false;
+	// whether the warning on credentials without TLS has been logged
+	private boolean cleartextWarned = false;
+
+	/**
+	 * Subscriptions made through this client, by topic filter, so they can be restored after an
+	 * automatic reconnect that came back without a session (see the automaticResubscribe option).
+	 */
+	private final Map<String, StoredSubscription> storedSubscriptions = new ConcurrentHashMap<String, StoredSubscription>();
+
+	private static final int RESUBSCRIBE_BATCH = 25;
+
+	private static final class StoredSubscription {
+		final MqttSubscription subscription;
+		final IMqttMessageListener listener;
+
+		StoredSubscription(MqttSubscription subscription, IMqttMessageListener listener) {
+			this.subscription = subscription;
+			this.listener = listener;
+		}
+	}
 
 	// Variables that exist within the life of an MQTT session
 	private MqttSessionState mqttSession = new MqttSessionState();
@@ -537,8 +568,11 @@ public class MqttAsyncClient implements MqttClientInterface, IMqttAsyncClient {
 	 *            the {@link MqttPingSender} Implementation to handle timing and
 	 *            sending Ping messages to the server.
 	 * @param executorService
-	 *            used for managing threads. If null then a newScheduledThreadPool
-	 *            is used.
+	 *            used for managing threads. If null no executor service is used.
+	 *            The automatic reconnect delay and, with the default
+	 *            pingSender, the keep-alive pings are scheduled on it as well;
+	 *            it needs a thread for them besides the client's receiver,
+	 *            sender and callback tasks.
 	 * @throws IllegalArgumentException
 	 *             if the URI does not start with "tcp://", "ssl://" or "local://"
 	 * @throws IllegalArgumentException
@@ -648,6 +682,46 @@ public class MqttAsyncClient implements MqttClientInterface, IMqttAsyncClient {
 	}
 
 	/**
+	 * Warns once per client when credentials go over a connection without TLS
+	 * to a host other than the loopback interface (CWE-319). Looks at the URI
+	 * strings only; no name lookup.
+	 */
+	private void warnOnCleartextCredentials(MqttConnectionOptions options) {
+		if (cleartextWarned) {
+			return;
+		}
+		String[] uris = options.getServerURIs();
+		if (uris == null || uris.length == 0) {
+			uris = new String[] { serverURI };
+		}
+		for (String uri : uris) {
+			boolean ws = uri.startsWith("ws://");
+			if (!ws && !uri.startsWith("tcp://")) {
+				continue;
+			}
+			URI parsed;
+			try {
+				parsed = new URI(uri);
+			} catch (URISyntaxException e) {
+				continue;
+			}
+			boolean credentials = options.getPassword() != null
+					|| (ws && NetworkModuleService.getUserInfo(parsed) != null);
+			if (credentials && !isLoopback(NetworkModuleService.getHost(parsed))) {
+				cleartextWarned = true;
+				// @TRACE 120=Credentials are sent without TLS to {0}; use ssl:// or wss:// unless the network is protected otherwise
+				log.warning(CLASS_NAME, "connect", "120", new Object[] { uri });
+				return;
+			}
+		}
+	}
+
+	private static boolean isLoopback(String host) {
+		return host != null && (host.equalsIgnoreCase("localhost") || host.startsWith("127.")
+				|| host.equals("::1") || host.equals("[::1]"));
+	}
+
+	/**
 	 * Factory method to create the correct network module, based on the supplied
 	 * address URI.
 	 *
@@ -753,6 +827,7 @@ public class MqttAsyncClient implements MqttClientInterface, IMqttAsyncClient {
 						Integer.valueOf(options.getKeepAliveInterval()), options.getUserName(),
 						((null == options.getPassword()) ? "[null]" : "[notnull]"),
 						((null == options.getWillMessage()) ? "[null]" : "[notnull]"), userContext, callback });
+		warnOnCleartextCredentials(options);
 		comms.setNetworkModules(createNetworkModules(serverURI, options));
 		comms.setReconnectCallback(new MqttReconnectCallback(automaticReconnect));
 
@@ -828,6 +903,7 @@ public class MqttAsyncClient implements MqttClientInterface, IMqttAsyncClient {
 	@Override
 	public IMqttToken disconnect(long quiesceTimeout, Object userContext, MqttActionListener callback, int reasonCode,
 			MqttProperties disconnectProperties) throws MqttException {
+		storedSubscriptions.clear(); // a deliberate disconnect ends the logical session
 		final String methodName = "disconnect";
 		// @TRACE 104=> quiesceTimeout={0} userContext={1} callback={2}
 		log.fine(CLASS_NAME, methodName, "104", new Object[] { Long.valueOf(quiesceTimeout), userContext, callback });
@@ -839,6 +915,7 @@ public class MqttAsyncClient implements MqttClientInterface, IMqttAsyncClient {
 		MqttDisconnect disconnect = new MqttDisconnect(reasonCode, disconnectProperties);
 
 		try {
+			endReconnectCycle();
 			comms.disconnect(disconnect, quiesceTimeout, token);
                         Thread.sleep(100);
 		} catch (MqttException ex) {
@@ -885,6 +962,8 @@ public class MqttAsyncClient implements MqttClientInterface, IMqttAsyncClient {
 			MqttProperties disconnectProperties) throws MqttException {
 		final String methodName = "disconnectForcibly";
 		try {
+		        storedSubscriptions.clear();
+		        endReconnectCycle();
 		        comms.disconnectForcibly(quiesceTimeout, disconnectTimeout, reasonCode, disconnectProperties);
                         Thread.sleep(100);
 		} catch (MqttException ex) {
@@ -905,6 +984,8 @@ public class MqttAsyncClient implements MqttClientInterface, IMqttAsyncClient {
 	@Override
 	public void disconnectForcibly(long quiesceTimeout, long disconnectTimeout, boolean sendDisconnectPacket)
 			throws MqttException {
+		storedSubscriptions.clear();
+		endReconnectCycle();
 		comms.disconnectForcibly(quiesceTimeout, disconnectTimeout, sendDisconnectPacket,
 				MqttReturnCode.RETURN_CODE_SUCCESS, new MqttProperties());
 	}
@@ -1137,7 +1218,9 @@ public class MqttAsyncClient implements MqttClientInterface, IMqttAsyncClient {
 					this.mqttConnection.isSharedSubscriptionsAvailable());
 		}
 		
-		return this.subscribeBase(subscriptions, userContext, callback, subscriptionProperties);
+		IMqttToken token = this.subscribeBase(subscriptions, userContext, callback, subscriptionProperties);
+		rememberSubscriptions(subscriptions, (IMqttMessageListener[]) null);
+		return token;
 	}
 
 	private IMqttToken subscribeBase(MqttSubscription[] subscriptions, Object userContext, MqttActionListener callback,
@@ -1245,6 +1328,7 @@ public class MqttAsyncClient implements MqttClientInterface, IMqttAsyncClient {
 				this.comms.setMessageListener(null, subscriptions[i].getTopic(), messageListeners[i]);
 			}
 		}
+		rememberSubscriptions(subscriptions, messageListeners);
 		
 		IMqttToken token = null;
 		try 	{
@@ -1253,6 +1337,7 @@ public class MqttAsyncClient implements MqttClientInterface, IMqttAsyncClient {
 			// if the subscribe fails, then we have to remove the message handlers
 			for (MqttSubscription subscription : subscriptions) {
 				this.comms.removeMessageListener(subscription.getTopic());
+				storedSubscriptions.remove(subscription.getTopic());
 			}
 			throw e;
 		}
@@ -1273,30 +1358,36 @@ public class MqttAsyncClient implements MqttClientInterface, IMqttAsyncClient {
 	public IMqttToken subscribe(MqttSubscription[] subscriptions, Object userContext, MqttActionListener callback,
 			IMqttMessageListener messageListener, MqttProperties subscriptionProperties) throws MqttException {
 
-		int subId = 0;
-		try {
-			subId = subscriptionProperties.getSubscriptionIdentifiers().get(0);
-		} catch (IndexOutOfBoundsException e) {
-			log.fine(CLASS_NAME, "subscribe", "No sub subscription property(s)");
+		if (subscriptionProperties == null) {
+			subscriptionProperties = new MqttProperties();
 		}
-		// Automatic Subscription Identifier Assignment is enabled
-		if (connOpts.useSubscriptionIdentifiers() && this.mqttConnection.isSubscriptionIdentifiersAvailable()) {
-
-			// Application is overriding the subscription Identifier
-			if (subId != 0) {
-				// Check that we are not already using this ID, else throw Illegal Argument
-				// Exception
-				if (this.comms.doesSubscriptionIdentifierExist(subId)) {
-					throw new IllegalArgumentException(
-							String.format("The Subscription Identifier %s already exists.", subId));
-				}
-
-			} else {
-				// Automatically assign new ID and link to callback.
-				subId = this.mqttSession.getNextSubscriptionIdentifier();
+		// The identifier encoded into the SUBSCRIBE, not those of a received PUBLISH
+		Integer subId = subscriptionProperties.getSubscriptionIdentifier();
+		if (subId != null) {
+			// Application is setting the subscription Identifier: the server echoes it in every
+			// PUBLISH, so the listener is linked to it even without automatic assignment. A
+			// re-subscribe of the same filters may keep it, another filter must not share it.
+			List<String> topicFilters = new ArrayList<String>(subscriptions.length);
+			for (MqttSubscription subscription : subscriptions) {
+				topicFilters.add(subscription.getTopic());
 			}
+			if (this.comms.isSubscriptionIdentifierUsedByOtherFilter(subId, topicFilters)) {
+				throw new IllegalArgumentException(
+						String.format("The Subscription Identifier %s already exists.", subId));
+			}
+		} else if (messageListener != null && connOpts.useSubscriptionIdentifiers()
+				&& this.mqttConnection.isSubscriptionIdentifiersAvailable()) {
+			// Automatically assign a new ID, skipping those the application set itself
+			do {
+				subId = this.mqttSession.getNextSubscriptionIdentifier();
+			} while (this.comms.doesSubscriptionIdentifierExist(subId));
+			// send it in a copy, the caller's properties may be reused for the next subscribe
+			MqttProperties withSubId = new MqttProperties();
+			withSubId.setUserProperties(subscriptionProperties.getUserProperties());
+			withSubId.setSubscriptionIdentifier(subId);
+			subscriptionProperties = withSubId;
 		}
-		
+
 		// add message handlers to the list for this client
 		for (MqttSubscription subscription : subscriptions) {
 			MqttTopicValidator.validate(subscription.getTopic(),
@@ -1308,6 +1399,7 @@ public class MqttAsyncClient implements MqttClientInterface, IMqttAsyncClient {
 				this.comms.setMessageListener(subId, subscription.getTopic(), messageListener);
 			}
 		}
+		rememberSubscriptions(subscriptions, messageListener);
 
 		IMqttToken token = null;
 		try 	{
@@ -1316,6 +1408,7 @@ public class MqttAsyncClient implements MqttClientInterface, IMqttAsyncClient {
 			// if the subscribe fails, then we have to remove the message handlers
 			for (MqttSubscription subscription : subscriptions) {
 				this.comms.removeMessageListener(subscription.getTopic());
+				storedSubscriptions.remove(subscription.getTopic());
 			}
 			throw e;
 		}
@@ -1396,6 +1489,7 @@ public class MqttAsyncClient implements MqttClientInterface, IMqttAsyncClient {
 		// remove message handlers from the list for this client
 		for (String topicFilter : topicFilters) {
 			this.comms.removeMessageListener(topicFilter);
+			storedSubscriptions.remove(topicFilter);
 		}
 
 		MqttToken token = new MqttToken(getClientId());
@@ -1563,8 +1657,15 @@ public class MqttAsyncClient implements MqttClientInterface, IMqttAsyncClient {
 		if (comms.isClosed()) {
 			throw new MqttException(MqttClientException.REASON_CODE_CLIENT_CLOSED);
 		}
+		if (connOpts == null) {
+			// connect() was never called, so there is nothing to reconnect with
+			throw ExceptionHelper.createMqttException(MqttClientException.REASON_CODE_CLIENT_NOT_CONNECTED);
+		}
 		// We don't want to spam the server
 		stopReconnectCycle();
+		synchronized (clientLock) {
+			reconnectCycleEnded = false;
+		}
 
 		attemptReconnect();
 	}
@@ -1579,18 +1680,90 @@ public class MqttAsyncClient implements MqttClientInterface, IMqttAsyncClient {
 	 * they are being thrown due to the server being offline and so reconnect
 	 * attempts will continue.
 	 */
+	private void rememberSubscriptions(MqttSubscription[] subscriptions, IMqttMessageListener[] listeners) {
+		if (connOpts != null && !connOpts.isAutomaticResubscribe()) {
+			return; // nothing to restore later, so retain nothing
+		}
+		for (int i = 0; i < subscriptions.length; i++) {
+			IMqttMessageListener listener = (listeners != null && i < listeners.length) ? listeners[i] : null;
+			storedSubscriptions.put(subscriptions[i].getTopic(), new StoredSubscription(subscriptions[i], listener));
+		}
+	}
+
+	private void rememberSubscriptions(MqttSubscription[] subscriptions, IMqttMessageListener listener) {
+		if (connOpts != null && !connOpts.isAutomaticResubscribe()) {
+			return;
+		}
+		for (MqttSubscription subscription : subscriptions) {
+			storedSubscriptions.put(subscription.getTopic(), new StoredSubscription(subscription, listener));
+		}
+	}
+
+	/**
+	 * Re-issues every subscription made through this client. Called after an automatic reconnect
+	 * whose CONNACK reported no session: the broker dropped the subscriptions and, with clean
+	 * start, {@code ClientComms.shutdownConnection} dropped the message listeners too, so without
+	 * this the connection comes back silent. Subscription identifiers and per-call subscription
+	 * properties belong to the old session and are not replayed.
+	 * <p>
+	 * Public only because the connect machinery lives in the internal package; not meant to be
+	 * called by applications.
+	 */
+	public void restoreSubscriptions() {
+		final String methodName = "restoreSubscriptions";
+		if (connOpts == null || !connOpts.isAutomaticResubscribe() || storedSubscriptions.isEmpty()) {
+			return;
+		}
+		List<StoredSubscription> stored = new ArrayList<StoredSubscription>(storedSubscriptions.values());
+		// @TRACE 520=Restoring {0} subscription(s) after reconnect for client: {1}
+		log.fine(CLASS_NAME, methodName, "520",
+				new Object[] { Integer.valueOf(stored.size()), this.mqttSession.getClientId() });
+		try {
+			// In batches: one SUBSCRIBE with thousands of filters could exceed the broker's packet
+			// limit, which would disconnect us and turn the restore into a reconnect loop.
+			for (int from = 0; from < stored.size(); from += RESUBSCRIBE_BATCH) {
+				int to = Math.min(from + RESUBSCRIBE_BATCH, stored.size());
+				MqttSubscription[] subscriptions = new MqttSubscription[to - from];
+				IMqttMessageListener[] listeners = new IMqttMessageListener[to - from];
+				for (int i = from; i < to; i++) {
+					subscriptions[i - from] = stored.get(i).subscription;
+					listeners[i - from] = stored.get(i).listener;
+				}
+				subscribe(subscriptions, null, null, listeners, new MqttProperties());
+			}
+		} catch (MqttException ex) {
+			// @TRACE 521=Restoring subscriptions after reconnect failed for client: {0}
+			log.fine(CLASS_NAME, methodName, "521", new Object[] { this.mqttSession.getClientId() }, ex);
+		} catch (IllegalArgumentException ex) {
+			log.fine(CLASS_NAME, methodName, "521", new Object[] { this.mqttSession.getClientId() }, ex);
+		}
+	}
+
 	private void attemptReconnect() {
 		final String methodName = "attemptReconnect";
+		synchronized (clientLock) {
+			if (reconnectCycleEnded) {
+				return;
+			}
+		}
 		// @Trace 500=Attempting to reconnect client: {0}
 		log.fine(CLASS_NAME, methodName, "500", new Object[] { this.mqttSession.getClientId() });
 		try {
 			connect(this.connOpts, this.userContext, new MqttReconnectActionListener(methodName));
-		} catch (MqttSecurityException ex) {
-			// @TRACE 804=exception
-			log.fine(CLASS_NAME, methodName, "804", null, ex);
 		} catch (MqttException ex) {
 			// @TRACE 804=exception
 			log.fine(CLASS_NAME, methodName, "804", null, ex);
+			// connect() refused the attempt synchronously, e.g. because a connect from elsewhere is
+			// in progress or the client is meanwhile connected. Formerly the cycle ended here in
+			// silence; keep it alive unless there is nothing left to do.
+			if (comms.isConnected()) {
+				stopReconnectCycle();
+			} else if (!comms.isClosed()) {
+				// @TRACE 522=Reconnect attempt rejected with reason code {0}, rescheduling: {1}
+				log.fine(CLASS_NAME, methodName, "522",
+						new Object[] { Integer.valueOf(ex.getReasonCode()), this.mqttSession.getClientId() });
+				new MqttReconnectActionListener(methodName).backOffAndReschedule();
+			}
 		}
 	}
 
@@ -1599,7 +1772,8 @@ public class MqttAsyncClient implements MqttClientInterface, IMqttAsyncClient {
 		// @Trace 503=Start reconnect timer for client: {0}, delay: {1}
 		log.fine(CLASS_NAME, methodName, "503",
 				new Object[] { this.mqttSession.getClientId(), Long.valueOf(reconnectDelay) });
-		reconnectTimer = new Timer("MQTT Reconnect: " + this.mqttSession.getClientId());
+		reconnectTimer = executorService != null ? new MonotonicTimer(executorService)
+				: new MonotonicTimer("MQTT Reconnect: " + this.mqttSession.getClientId());
 		reconnectTimer.schedule(new ReconnectTask(), reconnectDelay);
 	}
 
@@ -1608,7 +1782,7 @@ public class MqttAsyncClient implements MqttClientInterface, IMqttAsyncClient {
 		// @Trace 504=Stop reconnect timer for client: {0}
 		log.fine(CLASS_NAME, methodName, "504", new Object[] { this.mqttSession.getClientId() });
 		synchronized (clientLock) {
-			if (this.connOpts.isAutomaticReconnect()) {
+			if (this.connOpts != null && this.connOpts.isAutomaticReconnect()) {
 				if (reconnectTimer != null) {
 					reconnectTimer.cancel();
 					reconnectTimer = null;
@@ -1618,7 +1792,24 @@ public class MqttAsyncClient implements MqttClientInterface, IMqttAsyncClient {
 		}
 	}
 
-	private class ReconnectTask extends TimerTask {
+	/**
+	 * Ends the automatic reconnect cycle for good, because the application takes the connection
+	 * down (disconnect, close). Unlike {@link #stopReconnectCycle()}, a failing reconnect attempt
+	 * that is still under way does not schedule a new one. A later connection loss or an explicit
+	 * {@link #reconnect()} starts a new cycle.
+	 */
+	private void endReconnectCycle() {
+		synchronized (clientLock) {
+			reconnectCycleEnded = true;
+			if (reconnectTimer != null) {
+				reconnectTimer.cancel();
+				reconnectTimer = null;
+			}
+			reconnectDelay = 1000; // Reset Delay Timer
+		}
+	}
+
+	private class ReconnectTask implements Runnable {
 		private static final String methodName = "ReconnectTask.run";
 
 		public void run() {
@@ -1651,6 +1842,9 @@ public class MqttAsyncClient implements MqttClientInterface, IMqttAsyncClient {
 				// state
 				comms.setRestingState(true);
 				reconnecting = true;
+				synchronized (clientLock) {
+					reconnectCycleEnded = false;
+				}
 				startReconnectCycle();
 			}
 		}
@@ -1676,12 +1870,29 @@ public class MqttAsyncClient implements MqttClientInterface, IMqttAsyncClient {
 			// @Trace 501=Automatic Reconnect Successful: {0}
 			log.fine(CLASS_NAME, methodName, "501", new Object[] { asyncActionToken.getClient().getClientId() });
 			comms.setRestingState(false);
+			boolean ended;
+			synchronized (clientLock) {
+				ended = reconnectCycleEnded;
+			}
 			stopReconnectCycle();
+			if (ended) {
+				// disconnect() came while this attempt was under way and could not stop it
+				try {
+					comms.disconnectAfterReconnect(new MqttDisconnect(MqttReturnCode.RETURN_CODE_SUCCESS, new MqttProperties()),
+							new MqttToken(asyncActionToken.getClient().getClientId()));
+				} catch (MqttException e) {
+					// not reached: reason code 0 is valid for DISCONNECT
+				}
+			}
 		}
 
 		public void onFailure(IMqttToken asyncActionToken, Throwable exception) {
 			// @Trace 502=Automatic Reconnect failed, rescheduling: {0}
 			log.fine(CLASS_NAME, methodName, "502", new Object[] { asyncActionToken.getClient().getClientId() });
+			backOffAndReschedule();
+		}
+
+		void backOffAndReschedule() {
 			if (reconnectDelay < connOpts.getMaxReconnectDelay()) {
 				reconnectDelay = reconnectDelay * 2;
 			}
@@ -1695,7 +1906,7 @@ public class MqttAsyncClient implements MqttClientInterface, IMqttAsyncClient {
 			log.fine(CLASS_NAME, reschedulemethodName, "505",
 					new Object[] { MqttAsyncClient.this.mqttSession.getClientId(), String.valueOf(reconnectDelay) });
 			synchronized (clientLock) {
-				if (MqttAsyncClient.this.connOpts.isAutomaticReconnect()) {
+				if (!reconnectCycleEnded && MqttAsyncClient.this.connOpts.isAutomaticReconnect()) {
 					if (reconnectTimer != null) {
 						reconnectTimer.schedule(new ReconnectTask(), delay);
 					} else {
@@ -1784,6 +1995,8 @@ public class MqttAsyncClient implements MqttClientInterface, IMqttAsyncClient {
 		final String methodName = "close";
 		// @TRACE 113=<
 		log.fine(CLASS_NAME, methodName, "113");
+		storedSubscriptions.clear();
+		endReconnectCycle();
 		comms.close(force);
 		// @TRACE 114=>
 		log.fine(CLASS_NAME, methodName, "114");
